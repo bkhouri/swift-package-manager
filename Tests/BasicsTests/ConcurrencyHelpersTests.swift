@@ -9,15 +9,17 @@
 // See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
 //
 //===----------------------------------------------------------------------===//
+import Foundation
 
 @testable import Basics
 import TSCTestSupport
-import XCTest
+import Testing
 
-final class ConcurrencyHelpersTest: XCTestCase {
+struct ConcurrencyHelpersTest {
     let queue = DispatchQueue(label: "ConcurrencyHelpersTest", attributes: .concurrent)
 
-    func testThreadSafeKeyValueStore() {
+    @Test
+    func threadSafeKeyValueStore() {
         for _ in 0 ..< 100 {
             let sync = DispatchGroup()
 
@@ -42,17 +44,18 @@ final class ConcurrencyHelpersTest: XCTestCase {
             }
 
             switch sync.wait(timeout: .now() + .seconds(2)) {
-            case .timedOut:
-                XCTFail("timeout")
-            case .success:
-                expected.forEach { key, value in
-                    XCTAssertEqual(cache[key], value)
-                }
+                case .timedOut:
+                    Issue.record("timeout")
+                case .success:
+                    expected.forEach { key, value in
+                        #expect(cache[key] == value)
+                    }
             }
         }
     }
 
-    func testThreadSafeArrayStore() {
+    @Test
+    func threadSafeArrayStore() {
         for _ in 0 ..< 100 {
             let sync = DispatchGroup()
 
@@ -72,17 +75,18 @@ final class ConcurrencyHelpersTest: XCTestCase {
             }
 
             switch sync.wait(timeout: .now() + .seconds(2)) {
-            case .timedOut:
-                XCTFail("timeout")
-            case .success:
-                let expectedSorted = expected.sorted()
-                let resultsSorted = cache.get().sorted()
-                XCTAssertEqual(expectedSorted, resultsSorted)
+                case .timedOut:
+                    Issue.record("timeout")
+                case .success:
+                    let expectedSorted = expected.sorted()
+                    let resultsSorted = cache.get().sorted()
+                    #expect(expectedSorted == resultsSorted)
             }
         }
     }
 
-    func testThreadSafeBox() {
+    @Test
+    func threadSafeBox() {
         for _ in 0 ..< 100 {
             let sync = DispatchGroup()
 
@@ -109,10 +113,10 @@ final class ConcurrencyHelpersTest: XCTestCase {
             }
 
             switch sync.wait(timeout: .now() + .seconds(2)) {
-            case .timedOut:
-                XCTFail("timeout")
-            case .success:
-                XCTAssertEqual(cache.get(), winner)
+                case .timedOut:
+                    Issue.record("timeout")
+                case .success:
+                    #expect(cache.get() == winner)
             }
         }
     }
