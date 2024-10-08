@@ -6,11 +6,11 @@
 
  See http://swift.org/LICENSE.txt for license information
  See http://swift.org/CONTRIBUTORS.txt for Swift project authors
-*/
+ */
 
 import Basics
 import Foundation
-import XCTest
+import Testing
 
 #if os(Windows)
 private var windows: Bool { true }
@@ -18,330 +18,352 @@ private var windows: Bool { true }
 private var windows: Bool { false }
 #endif
 
-class PathTests: XCTestCase {
-    func testBasics() {
-        XCTAssertEqual(AbsolutePath("/").pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/a").pathString, windows ? #"\a"# : "/a")
-        XCTAssertEqual(AbsolutePath("/a/b/c").pathString, windows ? #"\a\b\c"# : "/a/b/c")
-        XCTAssertEqual(RelativePath(".").pathString, ".")
-        XCTAssertEqual(RelativePath("a").pathString, "a")
-        XCTAssertEqual(RelativePath("a/b/c").pathString, windows ? #"a\b\c"# : "a/b/c")
-        XCTAssertEqual(RelativePath("~").pathString, "~")  // `~` is not special
+struct PathTests {
+    @Test
+    func basics() {
+        #expect(AbsolutePath("/").pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/a").pathString == (windows ? #"\a"# : "/a"))
+        #expect(AbsolutePath("/a/b/c").pathString == (windows ? #"\a\b\c"# : "/a/b/c"))
+        #expect(RelativePath(".").pathString == ".")
+        #expect(RelativePath("a").pathString == "a")
+        #expect(RelativePath("a/b/c").pathString == (windows ? #"a\b\c"# : "a/b/c"))
+        #expect(RelativePath("~").pathString == "~")  // `~` is not special
     }
 
-    func testStringInitialization() throws {
+    @Test
+    func stringInitialization() throws {
         let abs1 = AbsolutePath("/")
         let abs2 = AbsolutePath(abs1, ".")
-        XCTAssertEqual(abs1, abs2)
+        #expect(abs1 == abs2)
         let rel3 = "."
         let abs3 = try AbsolutePath(abs2, validating: rel3)
-        XCTAssertEqual(abs2, abs3)
+        #expect(abs2 == abs3)
         let base = AbsolutePath("/base/path")
         let abs4 = AbsolutePath("/a/b/c", relativeTo: base)
-        XCTAssertEqual(abs4, AbsolutePath("/a/b/c"))
+        #expect(abs4 == AbsolutePath("/a/b/c"))
         let abs5 = AbsolutePath("./a/b/c", relativeTo: base)
-        XCTAssertEqual(abs5, AbsolutePath("/base/path/a/b/c"))
+        #expect(abs5 == AbsolutePath("/base/path/a/b/c"))
         let abs6 = AbsolutePath("~/bla", relativeTo: base)  // `~` isn't special
-        XCTAssertEqual(abs6, AbsolutePath("/base/path/~/bla"))
+        #expect(abs6 == AbsolutePath("/base/path/~/bla"))
     }
 
-    func testStringLiteralInitialization() {
+    @Test
+    func stringLiteralInitialization() {
         let abs = AbsolutePath("/")
-        XCTAssertEqual(abs.pathString, windows ? #"\"# : "/")
+        #expect(abs.pathString == (windows ? #"\"# : "/"))
         let rel1 = RelativePath(".")
-        XCTAssertEqual(rel1.pathString, ".")
+        #expect(rel1.pathString == ".")
         let rel2 = RelativePath("~")
-        XCTAssertEqual(rel2.pathString, "~")  // `~` is not special
+        #expect(rel2.pathString == "~")  // `~` is not special
     }
 
-    func testRepeatedPathSeparators() {
-        XCTAssertEqual(AbsolutePath("/ab//cd//ef").pathString, windows ? #"\ab\cd\ef"# : "/ab/cd/ef")
-        XCTAssertEqual(AbsolutePath("/ab///cd//ef").pathString, windows ? #"\ab\cd\ef"# : "/ab/cd/ef")
-        XCTAssertEqual(RelativePath("ab//cd//ef").pathString, windows ? #"ab\cd\ef"# : "ab/cd/ef")
-        XCTAssertEqual(RelativePath("ab//cd///ef").pathString, windows ? #"ab\cd\ef"# : "ab/cd/ef")
+    @Test
+    func repeatedPathSeparators() {
+        #expect(AbsolutePath("/ab//cd//ef").pathString == (windows ? #"\ab\cd\ef"# : "/ab/cd/ef"))
+        #expect(AbsolutePath("/ab///cd//ef").pathString == (windows ? #"\ab\cd\ef"# : "/ab/cd/ef"))
+        #expect(RelativePath("ab//cd//ef").pathString == (windows ? #"ab\cd\ef"# : "ab/cd/ef"))
+        #expect(RelativePath("ab//cd///ef").pathString == (windows ? #"ab\cd\ef"# : "ab/cd/ef"))
     }
 
-    func testTrailingPathSeparators() {
-        XCTAssertEqual(AbsolutePath("/ab/cd/ef/").pathString, windows ? #"\ab\cd\ef"# : "/ab/cd/ef")
-        XCTAssertEqual(AbsolutePath("/ab/cd/ef//").pathString, windows ? #"\ab\cd\ef"# : "/ab/cd/ef")
-        XCTAssertEqual(RelativePath("ab/cd/ef/").pathString, windows ? #"ab\cd\ef"# : "ab/cd/ef")
-        XCTAssertEqual(RelativePath("ab/cd/ef//").pathString, windows ? #"ab\cd\ef"# : "ab/cd/ef")
+    @Test
+    func trailingPathSeparators() {
+        #expect(AbsolutePath("/ab/cd/ef/").pathString == (windows ? #"\ab\cd\ef"# : "/ab/cd/ef"))
+        #expect(AbsolutePath("/ab/cd/ef//").pathString == (windows ? #"\ab\cd\ef"# : "/ab/cd/ef"))
+        #expect(RelativePath("ab/cd/ef/").pathString == (windows ? #"ab\cd\ef"# : "ab/cd/ef"))
+        #expect(RelativePath("ab/cd/ef//").pathString == (windows ? #"ab\cd\ef"# : "ab/cd/ef"))
     }
 
-    func testDotPathComponents() {
-        XCTAssertEqual(AbsolutePath("/ab/././cd//ef").pathString, "/ab/cd/ef")
-        XCTAssertEqual(AbsolutePath("/ab/./cd//ef/.").pathString, "/ab/cd/ef")
-        XCTAssertEqual(RelativePath("ab/./cd/././ef").pathString, "ab/cd/ef")
-        XCTAssertEqual(RelativePath("ab/./cd/ef/.").pathString, "ab/cd/ef")
+    @Test
+    func dotPathComponents() {
+        #expect(AbsolutePath("/ab/././cd//ef").pathString == "/ab/cd/ef")
+        #expect(AbsolutePath("/ab/./cd//ef/.").pathString == "/ab/cd/ef")
+        #expect(RelativePath("ab/./cd/././ef").pathString == "ab/cd/ef")
+        #expect(RelativePath("ab/./cd/ef/.").pathString == "ab/cd/ef")
     }
 
-    func testDotDotPathComponents() {
-        XCTAssertEqual(AbsolutePath("/..").pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/../../../../..").pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/abc/..").pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/abc/../..").pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/../abc").pathString, windows ? #"\abc"# : "/abc")
-        XCTAssertEqual(AbsolutePath("/../abc/..").pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/../abc/../def").pathString, windows ? #"\def"# : "/def")
-        XCTAssertEqual(RelativePath("..").pathString, "..")
-        XCTAssertEqual(RelativePath("../..").pathString, "../..")
-        XCTAssertEqual(RelativePath(".././..").pathString, "../..")
-        XCTAssertEqual(RelativePath("../abc/..").pathString, "..")
-        XCTAssertEqual(RelativePath("../abc/.././").pathString, "..")
-        XCTAssertEqual(RelativePath("abc/..").pathString, ".")
+    @Test
+    func dotDotPathComponents() {
+        #expect(AbsolutePath("/..").pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/../../../../..").pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/abc/..").pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/abc/../..").pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/../abc").pathString == (windows ? #"\abc"# : "/abc"))
+        #expect(AbsolutePath("/../abc/..").pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/../abc/../def").pathString == (windows ? #"\def"# : "/def"))
+        #expect(RelativePath("..").pathString == "..")
+        #expect(RelativePath("../..").pathString == "../..")
+        #expect(RelativePath(".././..").pathString == "../..")
+        #expect(RelativePath("../abc/..").pathString == "..")
+        #expect(RelativePath("../abc/.././").pathString == "..")
+        #expect(RelativePath("abc/..").pathString == ".")
     }
 
-    func testCombinationsAndEdgeCases() {
-        XCTAssertEqual(AbsolutePath("///").pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/./").pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(RelativePath("").pathString, ".")
-        XCTAssertEqual(RelativePath(".").pathString, ".")
-        XCTAssertEqual(RelativePath("./abc").pathString, "abc")
-        XCTAssertEqual(RelativePath("./abc/").pathString, "abc")
-        XCTAssertEqual(RelativePath("./abc/../bar").pathString, "bar")
-        XCTAssertEqual(RelativePath("foo/../bar").pathString, "bar")
-        XCTAssertEqual(RelativePath("foo///..///bar///baz").pathString, "bar/baz")
-        XCTAssertEqual(RelativePath("foo/../bar/./").pathString, "bar")
-        XCTAssertEqual(RelativePath("../abc/def/").pathString, "../abc/def")
-        XCTAssertEqual(RelativePath("././././.").pathString, ".")
-        XCTAssertEqual(RelativePath("./././../.").pathString, "..")
-        XCTAssertEqual(RelativePath("./").pathString, ".")
-        XCTAssertEqual(RelativePath(".//").pathString, ".")
-        XCTAssertEqual(RelativePath("./.").pathString, ".")
-        XCTAssertEqual(RelativePath("././").pathString, ".")
-        XCTAssertEqual(RelativePath("../").pathString, "..")
-        XCTAssertEqual(RelativePath("../.").pathString, "..")
-        XCTAssertEqual(RelativePath("./..").pathString, "..")
-        XCTAssertEqual(RelativePath("./../.").pathString, "..")
-        XCTAssertEqual(RelativePath("./////../////./////").pathString, "..")
-        XCTAssertEqual(RelativePath("../a").pathString, windows ? #"..\a"# : "../a")
-        XCTAssertEqual(RelativePath("../a/..").pathString, "..")
-        XCTAssertEqual(RelativePath("a/..").pathString, ".")
-        XCTAssertEqual(RelativePath("a/../////../////./////").pathString, "..")
+    @Test
+    func combinationsAndEdgeCases() {
+        #expect(AbsolutePath("///").pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/./").pathString == (windows ? #"\"# : "/"))
+        #expect(RelativePath("").pathString == ".")
+        #expect(RelativePath(".").pathString == ".")
+        #expect(RelativePath("./abc").pathString == "abc")
+        #expect(RelativePath("./abc/").pathString == "abc")
+        #expect(RelativePath("./abc/../bar").pathString == "bar")
+        #expect(RelativePath("foo/../bar").pathString == "bar")
+        #expect(RelativePath("foo///..///bar///baz").pathString == "bar/baz")
+        #expect(RelativePath("foo/../bar/./").pathString == "bar")
+        #expect(RelativePath("../abc/def/").pathString == "../abc/def")
+        #expect(RelativePath("././././.").pathString == ".")
+        #expect(RelativePath("./././../.").pathString == "..")
+        #expect(RelativePath("./").pathString == ".")
+        #expect(RelativePath(".//").pathString == ".")
+        #expect(RelativePath("./.").pathString == ".")
+        #expect(RelativePath("././").pathString == ".")
+        #expect(RelativePath("../").pathString == "..")
+        #expect(RelativePath("../.").pathString == "..")
+        #expect(RelativePath("./..").pathString == "..")
+        #expect(RelativePath("./../.").pathString == "..")
+        #expect(RelativePath("./////../////./////").pathString == "..")
+        #expect(RelativePath("../a").pathString == (windows ? #"..\a"# : "../a"))
+        #expect(RelativePath("../a/..").pathString == "..")
+        #expect(RelativePath("a/..").pathString == ".")
+        #expect(RelativePath("a/../////../////./////").pathString == "..")
     }
 
-    func testDirectoryNameExtraction() {
-        XCTAssertEqual(AbsolutePath("/").dirname, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/a").dirname, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/./a").dirname, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/../..").dirname, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/ab/c//d/").dirname, windows ? #"\ab\c"# : "/ab/c")
-        XCTAssertEqual(RelativePath("ab/c//d/").dirname, windows ? #"ab\c"# : "ab/c")
-        XCTAssertEqual(RelativePath("../a").dirname, "..")
-        XCTAssertEqual(RelativePath("../a/..").dirname, ".")
-        XCTAssertEqual(RelativePath("a/..").dirname, ".")
-        XCTAssertEqual(RelativePath("./..").dirname, ".")
-        XCTAssertEqual(RelativePath("a/../////../////./////").dirname, ".")
-        XCTAssertEqual(RelativePath("abc").dirname, ".")
-        XCTAssertEqual(RelativePath("").dirname, ".")
-        XCTAssertEqual(RelativePath(".").dirname, ".")
+    @Test
+    func directoryNameExtraction() {
+        #expect(AbsolutePath("/").dirname == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/a").dirname == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/./a").dirname == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/../..").dirname == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/ab/c//d/").dirname == (windows ? #"\ab\c"# : "/ab/c"))
+        #expect(RelativePath("ab/c//d/").dirname == (windows ? #"ab\c"# : "ab/c"))
+        #expect(RelativePath("../a").dirname == "..")
+        #expect(RelativePath("../a/..").dirname == ".")
+        #expect(RelativePath("a/..").dirname == ".")
+        #expect(RelativePath("./..").dirname == ".")
+        #expect(RelativePath("a/../////../////./////").dirname == ".")
+        #expect(RelativePath("abc").dirname == ".")
+        #expect(RelativePath("").dirname == ".")
+        #expect(RelativePath(".").dirname == ".")
     }
 
-    func testBaseNameExtraction() {
-        XCTAssertEqual(AbsolutePath("/").basename, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/a").basename, "a")
-        XCTAssertEqual(AbsolutePath("/./a").basename, "a")
-        XCTAssertEqual(AbsolutePath("/../..").basename, "/")
-        XCTAssertEqual(RelativePath("../..").basename, "..")
-        XCTAssertEqual(RelativePath("../a").basename, "a")
-        XCTAssertEqual(RelativePath("../a/..").basename, "..")
-        XCTAssertEqual(RelativePath("a/..").basename, ".")
-        XCTAssertEqual(RelativePath("./..").basename, "..")
-        XCTAssertEqual(RelativePath("a/../////../////./////").basename, "..")
-        XCTAssertEqual(RelativePath("abc").basename, "abc")
-        XCTAssertEqual(RelativePath("").basename, ".")
-        XCTAssertEqual(RelativePath(".").basename, ".")
+    @Test
+    func baseNameExtraction() {
+        #expect(AbsolutePath("/").basename == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/a").basename == "a")
+        #expect(AbsolutePath("/./a").basename == "a")
+        #expect(AbsolutePath("/../..").basename == "/")
+        #expect(RelativePath("../..").basename == "..")
+        #expect(RelativePath("../a").basename == "a")
+        #expect(RelativePath("../a/..").basename == "..")
+        #expect(RelativePath("a/..").basename == ".")
+        #expect(RelativePath("./..").basename == "..")
+        #expect(RelativePath("a/../////../////./////").basename == "..")
+        #expect(RelativePath("abc").basename == "abc")
+        #expect(RelativePath("").basename == ".")
+        #expect(RelativePath(".").basename == ".")
     }
 
-    func testBaseNameWithoutExt() {
-        XCTAssertEqual(AbsolutePath("/").basenameWithoutExt, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/a").basenameWithoutExt, "a")
-        XCTAssertEqual(AbsolutePath("/./a").basenameWithoutExt, "a")
-        XCTAssertEqual(AbsolutePath("/../..").basenameWithoutExt, "/")
-        XCTAssertEqual(RelativePath("../..").basenameWithoutExt, "..")
-        XCTAssertEqual(RelativePath("../a").basenameWithoutExt, "a")
-        XCTAssertEqual(RelativePath("../a/..").basenameWithoutExt, "..")
-        XCTAssertEqual(RelativePath("a/..").basenameWithoutExt, ".")
-        XCTAssertEqual(RelativePath("./..").basenameWithoutExt, "..")
-        XCTAssertEqual(RelativePath("a/../////../////./////").basenameWithoutExt, "..")
-        XCTAssertEqual(RelativePath("abc").basenameWithoutExt, "abc")
-        XCTAssertEqual(RelativePath("").basenameWithoutExt, ".")
-        XCTAssertEqual(RelativePath(".").basenameWithoutExt, ".")
+    @Test
+    func baseNameWithoutExt() {
+        #expect(AbsolutePath("/").basenameWithoutExt == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/a").basenameWithoutExt == "a")
+        #expect(AbsolutePath("/./a").basenameWithoutExt == "a")
+        #expect(AbsolutePath("/../..").basenameWithoutExt == "/")
+        #expect(RelativePath("../..").basenameWithoutExt == "..")
+        #expect(RelativePath("../a").basenameWithoutExt == "a")
+        #expect(RelativePath("../a/..").basenameWithoutExt == "..")
+        #expect(RelativePath("a/..").basenameWithoutExt == ".")
+        #expect(RelativePath("./..").basenameWithoutExt == "..")
+        #expect(RelativePath("a/../////../////./////").basenameWithoutExt == "..")
+        #expect(RelativePath("abc").basenameWithoutExt == "abc")
+        #expect(RelativePath("").basenameWithoutExt == ".")
+        #expect(RelativePath(".").basenameWithoutExt == ".")
 
-        XCTAssertEqual(AbsolutePath("/a.txt").basenameWithoutExt, "a")
-        XCTAssertEqual(AbsolutePath("/./a.txt").basenameWithoutExt, "a")
-        XCTAssertEqual(RelativePath("../a.bc").basenameWithoutExt, "a")
-        XCTAssertEqual(RelativePath("abc.swift").basenameWithoutExt, "abc")
-        XCTAssertEqual(RelativePath("../a.b.c").basenameWithoutExt, "a.b")
-        XCTAssertEqual(RelativePath("abc.xyz.123").basenameWithoutExt, "abc.xyz")
+        #expect(AbsolutePath("/a.txt").basenameWithoutExt == "a")
+        #expect(AbsolutePath("/./a.txt").basenameWithoutExt == "a")
+        #expect(RelativePath("../a.bc").basenameWithoutExt == "a")
+        #expect(RelativePath("abc.swift").basenameWithoutExt == "abc")
+        #expect(RelativePath("../a.b.c").basenameWithoutExt == "a.b")
+        #expect(RelativePath("abc.xyz.123").basenameWithoutExt == "abc.xyz")
     }
 
-    func testSuffixExtraction() {
-        XCTAssertEqual(RelativePath("a").suffix, nil)
-        XCTAssertEqual(RelativePath("a").extension, nil)
-        XCTAssertEqual(RelativePath("a.").suffix, nil)
-        XCTAssertEqual(RelativePath("a.").extension, nil)
-        XCTAssertEqual(RelativePath(".a").suffix, nil)
-        XCTAssertEqual(RelativePath(".a").extension, nil)
-        XCTAssertEqual(RelativePath("").suffix, nil)
-        XCTAssertEqual(RelativePath("").extension, nil)
-        XCTAssertEqual(RelativePath(".").suffix, nil)
-        XCTAssertEqual(RelativePath(".").extension, nil)
-        XCTAssertEqual(RelativePath("..").suffix, nil)
-        XCTAssertEqual(RelativePath("..").extension, nil)
-        XCTAssertEqual(RelativePath("a.foo").suffix, ".foo")
-        XCTAssertEqual(RelativePath("a.foo").extension, "foo")
-        XCTAssertEqual(RelativePath(".a.foo").suffix, ".foo")
-        XCTAssertEqual(RelativePath(".a.foo").extension, "foo")
-        XCTAssertEqual(RelativePath(".a.foo.bar").suffix, ".bar")
-        XCTAssertEqual(RelativePath(".a.foo.bar").extension, "bar")
-        XCTAssertEqual(RelativePath("a.foo.bar").suffix, ".bar")
-        XCTAssertEqual(RelativePath("a.foo.bar").extension, "bar")
-        XCTAssertEqual(RelativePath(".a.foo.bar.baz").suffix, ".baz")
-        XCTAssertEqual(RelativePath(".a.foo.bar.baz").extension, "baz")
+    @Test
+    func suffixExtraction() {
+        #expect(RelativePath("a").suffix == nil)
+        #expect(RelativePath("a").extension == nil)
+        #expect(RelativePath("a.").suffix == nil)
+        #expect(RelativePath("a.").extension == nil)
+        #expect(RelativePath(".a").suffix == nil)
+        #expect(RelativePath(".a").extension == nil)
+        #expect(RelativePath("").suffix == nil)
+        #expect(RelativePath("").extension == nil)
+        #expect(RelativePath(".").suffix == nil)
+        #expect(RelativePath(".").extension == nil)
+        #expect(RelativePath("..").suffix == nil)
+        #expect(RelativePath("..").extension == nil)
+        #expect(RelativePath("a.foo").suffix == ".foo")
+        #expect(RelativePath("a.foo").extension == "foo")
+        #expect(RelativePath(".a.foo").suffix == ".foo")
+        #expect(RelativePath(".a.foo").extension == "foo")
+        #expect(RelativePath(".a.foo.bar").suffix == ".bar")
+        #expect(RelativePath(".a.foo.bar").extension == "bar")
+        #expect(RelativePath("a.foo.bar").suffix == ".bar")
+        #expect(RelativePath("a.foo.bar").extension == "bar")
+        #expect(RelativePath(".a.foo.bar.baz").suffix == ".baz")
+        #expect(RelativePath(".a.foo.bar.baz").extension == "baz")
     }
 
-    func testParentDirectory() {
-        XCTAssertEqual(AbsolutePath("/").parentDirectory, AbsolutePath("/"))
-        XCTAssertEqual(AbsolutePath("/").parentDirectory.parentDirectory, AbsolutePath("/"))
-        XCTAssertEqual(AbsolutePath("/bar").parentDirectory, AbsolutePath("/"))
-        XCTAssertEqual(AbsolutePath("/bar/../foo/..//").parentDirectory.parentDirectory, AbsolutePath("/"))
-        XCTAssertEqual(AbsolutePath("/bar/../foo/..//yabba/a/b").parentDirectory.parentDirectory, AbsolutePath("/yabba"))
+    @Test
+    func parentDirectory() {
+        #expect(AbsolutePath("/").parentDirectory == AbsolutePath("/"))
+        #expect(AbsolutePath("/").parentDirectory.parentDirectory == AbsolutePath("/"))
+        #expect(AbsolutePath("/bar").parentDirectory == AbsolutePath("/"))
+        #expect(AbsolutePath("/bar/../foo/..//").parentDirectory.parentDirectory == AbsolutePath("/"))
+        #expect(AbsolutePath("/bar/../foo/..//yabba/a/b").parentDirectory.parentDirectory == AbsolutePath("/yabba"))
     }
 
+    @Test
     @available(*, deprecated)
-    func testConcatenation() {
-        XCTAssertEqual(AbsolutePath(AbsolutePath("/"), RelativePath("")).pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath(AbsolutePath("/"), RelativePath(".")).pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath(AbsolutePath("/"), RelativePath("..")).pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath(AbsolutePath("/"), RelativePath("bar")).pathString, windows ? #"\bar"# : "/bar")
-        XCTAssertEqual(AbsolutePath(AbsolutePath("/foo/bar"), RelativePath("..")).pathString, windows ? #"\foo"# : "/foo")
-        XCTAssertEqual(AbsolutePath(AbsolutePath("/bar"), RelativePath("../foo")).pathString, windows ? #"\foo"# : "/foo")
-        XCTAssertEqual(AbsolutePath(AbsolutePath("/bar"), RelativePath("../foo/..//")).pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath(AbsolutePath("/bar/../foo/..//yabba/"), RelativePath("a/b")).pathString, windows ? #"\yabba\a\b"# : "/yabba/a/b")
+    func concatenation() {
+        #expect(AbsolutePath(AbsolutePath("/"), RelativePath("")).pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath(AbsolutePath("/"), RelativePath(".")).pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath(AbsolutePath("/"), RelativePath("..")).pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath(AbsolutePath("/"), RelativePath("bar")).pathString == (windows ? #"\bar"# : "/bar"))
+        #expect(AbsolutePath(AbsolutePath("/foo/bar"), RelativePath("..")).pathString == (windows ? #"\foo"# : "/foo"))
+        #expect(AbsolutePath(AbsolutePath("/bar"), RelativePath("../foo")).pathString == (windows ? #"\foo"# : "/foo"))
+        #expect(AbsolutePath(AbsolutePath("/bar"), RelativePath("../foo/..//")).pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath(AbsolutePath("/bar/../foo/..//yabba/"), RelativePath("a/b")).pathString == (windows ? #"\yabba\a\b"# : "/yabba/a/b"))
 
-        XCTAssertEqual(AbsolutePath("/").appending(RelativePath("")).pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/").appending(RelativePath(".")).pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/").appending(RelativePath("..")).pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/").appending(RelativePath("bar")).pathString, windows ? #"\bar"# : "/bar")
-        XCTAssertEqual(AbsolutePath("/foo/bar").appending(RelativePath("..")).pathString, windows ? #"\foo"# : "/foo")
-        XCTAssertEqual(AbsolutePath("/bar").appending(RelativePath("../foo")).pathString, windows ? #"\foo"# : "/foo")
-        XCTAssertEqual(AbsolutePath("/bar").appending(RelativePath("../foo/..//")).pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/bar/../foo/..//yabba/").appending(RelativePath("a/b")).pathString, windows ? #"\yabba\a\b"# : "/yabba/a/b")
+        #expect(AbsolutePath("/").appending(RelativePath("")).pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/").appending(RelativePath(".")).pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/").appending(RelativePath("..")).pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/").appending(RelativePath("bar")).pathString == (windows ? #"\bar"# : "/bar"))
+        #expect(AbsolutePath("/foo/bar").appending(RelativePath("..")).pathString == (windows ? #"\foo"# : "/foo"))
+        #expect(AbsolutePath("/bar").appending(RelativePath("../foo")).pathString == (windows ? #"\foo"# : "/foo"))
+        #expect(AbsolutePath("/bar").appending(RelativePath("../foo/..//")).pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/bar/../foo/..//yabba/").appending(RelativePath("a/b")).pathString == (windows ? #"\yabba\a\b"# : "/yabba/a/b"))
 
-        XCTAssertEqual(AbsolutePath("/").appending(component: "a").pathString, windows ? #"\a"# : "/a")
-        XCTAssertEqual(AbsolutePath("/a").appending(component: "b").pathString, windows ? #"\a\b"# : "/a/b")
-        XCTAssertEqual(AbsolutePath("/").appending(components: "a", "b").pathString, windows ? #"\a\b"# : "/a/b")
-        XCTAssertEqual(AbsolutePath("/a").appending(components: "b", "c").pathString, windows ? #"\a\b\c"# : "/a/b/c")
+        #expect(AbsolutePath("/").appending(component: "a").pathString == (windows ? #"\a"# : "/a"))
+        #expect(AbsolutePath("/a").appending(component: "b").pathString == (windows ? #"\a\b"# : "/a/b"))
+        #expect(AbsolutePath("/").appending(components: "a", "b").pathString == (windows ? #"\a\b"# : "/a/b"))
+        #expect(AbsolutePath("/a").appending(components: "b", "c").pathString == (windows ? #"\a\b\c"# : "/a/b/c"))
 
-        XCTAssertEqual(AbsolutePath("/a/b/c").appending(components: "", "c").pathString, windows ? #"\a\b\c\c"# : "/a/b/c/c")
-        XCTAssertEqual(AbsolutePath("/a/b/c").appending(components: "").pathString, windows ? #"\a\b\c"# : "/a/b/c")
-        XCTAssertEqual(AbsolutePath("/a/b/c").appending(components: ".").pathString, windows ? #"\a\b\c"# : "/a/b/c")
-        XCTAssertEqual(AbsolutePath("/a/b/c").appending(components: "..").pathString, windows ? #"\a\b"# : "/a/b")
-        XCTAssertEqual(AbsolutePath("/a/b/c").appending(components: "..", "d").pathString, windows ? #"\a\b\d"# : "/a/b/d")
-        XCTAssertEqual(AbsolutePath("/").appending(components: "..").pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/").appending(components: ".").pathString, windows ? #"\"# : "/")
-        XCTAssertEqual(AbsolutePath("/").appending(components: "..", "a").pathString, windows ? #"\a"# : "/a")
+        #expect(AbsolutePath("/a/b/c").appending(components: "", "c").pathString == (windows ? #"\a\b\c\c"# : "/a/b/c/c"))
+        #expect(AbsolutePath("/a/b/c").appending(components: "").pathString == (windows ? #"\a\b\c"# : "/a/b/c"))
+        #expect(AbsolutePath("/a/b/c").appending(components: ".").pathString == (windows ? #"\a\b\c"# : "/a/b/c"))
+        #expect(AbsolutePath("/a/b/c").appending(components: "..").pathString == (windows ? #"\a\b"# : "/a/b"))
+        #expect(AbsolutePath("/a/b/c").appending(components: "..", "d").pathString == (windows ? #"\a\b\d"# : "/a/b/d"))
+        #expect(AbsolutePath("/").appending(components: "..").pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/").appending(components: ".").pathString == (windows ? #"\"# : "/"))
+        #expect(AbsolutePath("/").appending(components: "..", "a").pathString == (windows ? #"\a"# : "/a"))
 
-        XCTAssertEqual(RelativePath("hello").appending(components: "a", "b", "c", "..").pathString, windows ? #"hello\a\b"# : "hello/a/b")
-        XCTAssertEqual(RelativePath("hello").appending(RelativePath("a/b/../c/d")).pathString, windows ? #"hello\a\c\d"# : "hello/a/c/d")
+        #expect(RelativePath("hello").appending(components: "a", "b", "c", "..").pathString == (windows ? #"hello\a\b"# : "hello/a/b"))
+        #expect(RelativePath("hello").appending(RelativePath("a/b/../c/d")).pathString == (windows ? #"hello\a\c\d"# : "hello/a/c/d"))
     }
 
-    func testPathComponents() {
-        XCTAssertEqual(AbsolutePath("/").components, ["/"])
-        XCTAssertEqual(AbsolutePath("/.").components, ["/"])
-        XCTAssertEqual(AbsolutePath("/..").components, ["/"])
-        XCTAssertEqual(AbsolutePath("/bar").components, ["/", "bar"])
-        XCTAssertEqual(AbsolutePath("/foo/bar/..").components, ["/", "foo"])
-        XCTAssertEqual(AbsolutePath("/bar/../foo").components, ["/", "foo"])
-        XCTAssertEqual(AbsolutePath("/bar/../foo/..//").components, ["/"])
-        XCTAssertEqual(AbsolutePath("/bar/../foo/..//yabba/a/b/").components, ["/", "yabba", "a", "b"])
+    @Test
+    func pathComponents() {
+        #expect(AbsolutePath("/").components == ["/"])
+        #expect(AbsolutePath("/.").components == ["/"])
+        #expect(AbsolutePath("/..").components == ["/"])
+        #expect(AbsolutePath("/bar").components == ["/", "bar"])
+        #expect(AbsolutePath("/foo/bar/..").components == ["/", "foo"])
+        #expect(AbsolutePath("/bar/../foo").components == ["/", "foo"])
+        #expect(AbsolutePath("/bar/../foo/..//").components == ["/"])
+        #expect(AbsolutePath("/bar/../foo/..//yabba/a/b/").components == ["/", "yabba", "a", "b"])
 
-        XCTAssertEqual(RelativePath("").components, ["."])
-        XCTAssertEqual(RelativePath(".").components, ["."])
-        XCTAssertEqual(RelativePath("..").components, [".."])
-        XCTAssertEqual(RelativePath("bar").components, ["bar"])
-        XCTAssertEqual(RelativePath("foo/bar/..").components, ["foo"])
-        XCTAssertEqual(RelativePath("bar/../foo").components, ["foo"])
-        XCTAssertEqual(RelativePath("bar/../foo/..//").components, ["."])
-        XCTAssertEqual(RelativePath("bar/../foo/..//yabba/a/b/").components, ["yabba", "a", "b"])
-        XCTAssertEqual(RelativePath("../..").components, ["..", ".."])
-        XCTAssertEqual(RelativePath(".././/..").components, ["..", ".."])
-        XCTAssertEqual(RelativePath("../a").components, ["..", "a"])
-        XCTAssertEqual(RelativePath("../a/..").components, [".."])
-        XCTAssertEqual(RelativePath("a/..").components, ["."])
-        XCTAssertEqual(RelativePath("./..").components, [".."])
-        XCTAssertEqual(RelativePath("a/../////../////./////").components, [".."])
-        XCTAssertEqual(RelativePath("abc").components, ["abc"])
+        #expect(RelativePath("").components == ["."])
+        #expect(RelativePath(".").components == ["."])
+        #expect(RelativePath("..").components == [".."])
+        #expect(RelativePath("bar").components == ["bar"])
+        #expect(RelativePath("foo/bar/..").components == ["foo"])
+        #expect(RelativePath("bar/../foo").components == ["foo"])
+        #expect(RelativePath("bar/../foo/..//").components == ["."])
+        #expect(RelativePath("bar/../foo/..//yabba/a/b/").components == ["yabba", "a", "b"])
+        #expect(RelativePath("../..").components == ["..", ".."])
+        #expect(RelativePath(".././/..").components == ["..", ".."])
+        #expect(RelativePath("../a").components == ["..", "a"])
+        #expect(RelativePath("../a/..").components == [".."])
+        #expect(RelativePath("a/..").components == ["."])
+        #expect(RelativePath("./..").components == [".."])
+        #expect(RelativePath("a/../////../////./////").components == [".."])
+        #expect(RelativePath("abc").components == ["abc"])
     }
 
-    func testRelativePathFromAbsolutePaths() {
-        XCTAssertEqual(AbsolutePath("/").relative(to: AbsolutePath("/")), RelativePath("."));
-        XCTAssertEqual(AbsolutePath("/a/b/c/d").relative(to: AbsolutePath("/")), RelativePath("a/b/c/d"));
-        XCTAssertEqual(AbsolutePath("/").relative(to: AbsolutePath("/a/b/c")), RelativePath("../../.."));
-        XCTAssertEqual(AbsolutePath("/a/b/c/d").relative(to: AbsolutePath("/a/b")), RelativePath("c/d"));
-        XCTAssertEqual(AbsolutePath("/a/b/c/d").relative(to: AbsolutePath("/a/b/c")), RelativePath("d"));
-        XCTAssertEqual(AbsolutePath("/a/b/c/d").relative(to: AbsolutePath("/a/c/d")), RelativePath("../../b/c/d"));
-        XCTAssertEqual(AbsolutePath("/a/b/c/d").relative(to: AbsolutePath("/b/c/d")), RelativePath("../../../a/b/c/d"));
+    @Test
+    func relativePathFromAbsolutePaths() {
+        #expect(AbsolutePath("/").relative(to: AbsolutePath("/")) == RelativePath("."));
+        #expect(AbsolutePath("/a/b/c/d").relative(to: AbsolutePath("/")) == RelativePath("a/b/c/d"));
+        #expect(AbsolutePath("/").relative(to: AbsolutePath("/a/b/c")) == RelativePath("../../.."));
+        #expect(AbsolutePath("/a/b/c/d").relative(to: AbsolutePath("/a/b")) == RelativePath("c/d"));
+        #expect(AbsolutePath("/a/b/c/d").relative(to: AbsolutePath("/a/b/c")) == RelativePath("d"));
+        #expect(AbsolutePath("/a/b/c/d").relative(to: AbsolutePath("/a/c/d")) == RelativePath("../../b/c/d"));
+        #expect(AbsolutePath("/a/b/c/d").relative(to: AbsolutePath("/b/c/d")) == RelativePath("../../../a/b/c/d"));
     }
 
-    func testComparison() {
-        XCTAssertTrue(AbsolutePath("/") <= AbsolutePath("/"));
-        XCTAssertTrue(AbsolutePath("/abc") < AbsolutePath("/def"));
-        XCTAssertTrue(AbsolutePath("/2") <= AbsolutePath("/2.1"));
-        XCTAssertTrue(AbsolutePath("/3.1") > AbsolutePath("/2"));
-        XCTAssertTrue(AbsolutePath("/2") >= AbsolutePath("/2"));
-        XCTAssertTrue(AbsolutePath("/2.1") >= AbsolutePath("/2"));
+    @Test
+    func comparison() {
+        #expect(AbsolutePath("/") <= AbsolutePath("/"));
+        #expect(AbsolutePath("/abc") < AbsolutePath("/def"));
+        #expect(AbsolutePath("/2") <= AbsolutePath("/2.1"));
+        #expect(AbsolutePath("/3.1") > AbsolutePath("/2"));
+        #expect(AbsolutePath("/2") >= AbsolutePath("/2"));
+        #expect(AbsolutePath("/2.1") >= AbsolutePath("/2"));
     }
 
-    func testAncestry() {
-        XCTAssertTrue(AbsolutePath("/a/b/c/d/e/f").isDescendantOfOrEqual(to: AbsolutePath("/a/b/c/d")))
-        XCTAssertTrue(AbsolutePath("/a/b/c/d/e/f.swift").isDescendantOfOrEqual(to: AbsolutePath("/a/b/c")))
-        XCTAssertTrue(AbsolutePath("/").isDescendantOfOrEqual(to: AbsolutePath("/")))
-        XCTAssertTrue(AbsolutePath("/foo/bar").isDescendantOfOrEqual(to: AbsolutePath("/")))
-        XCTAssertFalse(AbsolutePath("/foo/bar").isDescendantOfOrEqual(to: AbsolutePath("/foo/bar/baz")))
-        XCTAssertFalse(AbsolutePath("/foo/bar").isDescendantOfOrEqual(to: AbsolutePath("/bar")))
+    @Test
+    func ancestry() {
+        #expect(AbsolutePath("/a/b/c/d/e/f").isDescendantOfOrEqual(to: AbsolutePath("/a/b/c/d")))
+        #expect(AbsolutePath("/a/b/c/d/e/f.swift").isDescendantOfOrEqual(to: AbsolutePath("/a/b/c")))
+        #expect(AbsolutePath("/").isDescendantOfOrEqual(to: AbsolutePath("/")))
+        #expect(AbsolutePath("/foo/bar").isDescendantOfOrEqual(to: AbsolutePath("/")))
+        #expect(!AbsolutePath("/foo/bar").isDescendantOfOrEqual(to: AbsolutePath("/foo/bar/baz")))
+        #expect(!AbsolutePath("/foo/bar").isDescendantOfOrEqual(to: AbsolutePath("/bar")))
 
-        XCTAssertFalse(AbsolutePath("/foo/bar").isDescendant(of: AbsolutePath("/foo/bar")))
-        XCTAssertTrue(AbsolutePath("/foo/bar").isDescendant(of: AbsolutePath("/foo")))
+        #expect(!AbsolutePath("/foo/bar").isDescendant(of: AbsolutePath("/foo/bar")))
+        #expect(AbsolutePath("/foo/bar").isDescendant(of: AbsolutePath("/foo")))
 
-        XCTAssertTrue(AbsolutePath("/a/b/c/d").isAncestorOfOrEqual(to: AbsolutePath("/a/b/c/d/e/f")))
-        XCTAssertTrue(AbsolutePath("/a/b/c").isAncestorOfOrEqual(to: AbsolutePath("/a/b/c/d/e/f.swift")))
-        XCTAssertTrue(AbsolutePath("/").isAncestorOfOrEqual(to: AbsolutePath("/")))
-        XCTAssertTrue(AbsolutePath("/").isAncestorOfOrEqual(to: AbsolutePath("/foo/bar")))
-        XCTAssertFalse(AbsolutePath("/foo/bar/baz").isAncestorOfOrEqual(to: AbsolutePath("/foo/bar")))
-        XCTAssertFalse(AbsolutePath("/bar").isAncestorOfOrEqual(to: AbsolutePath("/foo/bar")))
+        #expect(AbsolutePath("/a/b/c/d").isAncestorOfOrEqual(to: AbsolutePath("/a/b/c/d/e/f")))
+        #expect(AbsolutePath("/a/b/c").isAncestorOfOrEqual(to: AbsolutePath("/a/b/c/d/e/f.swift")))
+        #expect(AbsolutePath("/").isAncestorOfOrEqual(to: AbsolutePath("/")))
+        #expect(AbsolutePath("/").isAncestorOfOrEqual(to: AbsolutePath("/foo/bar")))
+        #expect(!AbsolutePath("/foo/bar/baz").isAncestorOfOrEqual(to: AbsolutePath("/foo/bar")))
+        #expect(!AbsolutePath("/bar").isAncestorOfOrEqual(to: AbsolutePath("/foo/bar")))
 
-        XCTAssertFalse(AbsolutePath("/foo/bar").isAncestor(of: AbsolutePath("/foo/bar")))
-        XCTAssertTrue(AbsolutePath("/foo").isAncestor(of: AbsolutePath("/foo/bar")))
+        #expect(!AbsolutePath("/foo/bar").isAncestor(of: AbsolutePath("/foo/bar")))
+        #expect(AbsolutePath("/foo").isAncestor(of: AbsolutePath("/foo/bar")))
     }
 
-    func testAbsolutePathValidation() {
-        XCTAssertNoThrow(try AbsolutePath(validating: "/a/b/c/d"))
-
-        XCTAssertThrowsError(try AbsolutePath(validating: "~/a/b/d")) { error in
-            XCTAssertEqual("\(error)", "invalid absolute path '~/a/b/d'; absolute path must begin with '/'")
+    @Test
+    func absolutePathValidation() {
+        #expect(throws: Never.self) {
+            try AbsolutePath(validating: "/a/b/c/d")
         }
 
-        XCTAssertThrowsError(try AbsolutePath(validating: "a/b/d")) { error in
-            XCTAssertEqual("\(error)", "invalid absolute path 'a/b/d'")
+        #expect {try AbsolutePath(validating: "~/a/b/d")} throws: { error in
+            ("\(error)" == "invalid absolute path '~/a/b/d'; absolute path must begin with '/'")
+        }
+
+        #expect {try AbsolutePath(validating: "a/b/d") } throws: { error in
+            ("\(error)" == "invalid absolute path 'a/b/d'")
         }
     }
 
-    func testRelativePathValidation() {
-        XCTAssertNoThrow(try RelativePath(validating: "a/b/c/d"))
+    @Test
+    func relativePathValidation() {
+        #expect(throws: Never.self) {
+            try RelativePath(validating: "a/b/c/d")
+        }
 
-        XCTAssertThrowsError(try RelativePath(validating: "/a/b/d")) { error in
-            XCTAssertEqual("\(error)", "invalid relative path '/a/b/d'; relative path should not begin with '/'")
+        #expect {try RelativePath(validating: "/a/b/d")} throws: { error in
+            ("\(error)" == "invalid relative path '/a/b/d'; relative path should not begin with '/'")
             //XCTAssertEqual("\(error)", "invalid relative path '/a/b/d'; relative path should not begin with '/' or '~'")
         }
 
-        /*XCTAssertThrowsError(try RelativePath(validating: "~/a/b/d")) { error in
-            XCTAssertEqual("\(error)", "invalid relative path '~/a/b/d'; relative path should not begin with '/' or '~'")
-        }*/
     }
 
-    func testCodable() throws {
+    @Test
+    func codable() throws {
         struct Foo: Codable, Equatable {
             var path: AbsolutePath
         }
@@ -358,48 +380,56 @@ class PathTests: XCTestCase {
             let foo = Foo(path: "/path/to/foo")
             let data = try JSONEncoder().encode(foo)
             let decodedFoo = try JSONDecoder().decode(Foo.self, from: data)
-            XCTAssertEqual(foo, decodedFoo)
+            #expect(foo == decodedFoo)
         }
 
         do {
             let foo = Foo(path: "/path/to/../to/foo")
             let data = try JSONEncoder().encode(foo)
             let decodedFoo = try JSONDecoder().decode(Foo.self, from: data)
-            XCTAssertEqual(foo, decodedFoo)
-            XCTAssertEqual(foo.path.pathString, windows ? #"\path\to\foo"# : "/path/to/foo")
-            XCTAssertEqual(decodedFoo.path.pathString, windows ? #"\path\to\foo"# : "/path/to/foo")
+            #expect(foo == decodedFoo)
+            #expect(foo.path.pathString == (windows ? #"\path\to\foo"# : "/path/to/foo"))
+            #expect(decodedFoo.path.pathString == (windows ? #"\path\to\foo"# : "/path/to/foo"))
         }
 
         do {
             let bar = Bar(path: "path/to/bar")
             let data = try JSONEncoder().encode(bar)
             let decodedBar = try JSONDecoder().decode(Bar.self, from: data)
-            XCTAssertEqual(bar, decodedBar)
+            #expect(bar == decodedBar)
         }
 
         do {
             let bar = Bar(path: "path/to/../to/bar")
             let data = try JSONEncoder().encode(bar)
             let decodedBar = try JSONDecoder().decode(Bar.self, from: data)
-            XCTAssertEqual(bar, decodedBar)
-            XCTAssertEqual(bar.path.pathString, "path/to/bar")
-            XCTAssertEqual(decodedBar.path.pathString, "path/to/bar")
+            #expect(bar == decodedBar)
+            #expect(bar.path.pathString == "path/to/bar")
+            #expect(decodedBar.path.pathString == "path/to/bar")
         }
 
         do {
             let data = try JSONEncoder().encode(Baz(path: ""))
-            XCTAssertThrowsError(try JSONDecoder().decode(Foo.self, from: data))
-            XCTAssertNoThrow(try JSONDecoder().decode(Bar.self, from: data)) // empty string is a valid relative path
+            #expect(throws: (any Error).self) {
+                try JSONDecoder().decode(Foo.self, from: data)
+            }
+            #expect(throws: Never.self) {
+                try JSONDecoder().decode(Bar.self, from: data)
+            } // empty string is a valid relative path
         }
 
         do {
             let data = try JSONEncoder().encode(Baz(path: "foo"))
-            XCTAssertThrowsError(try JSONDecoder().decode(Foo.self, from: data))
+            #expect(throws: (any Error).self) {
+                try JSONDecoder().decode(Foo.self, from: data)
+            }
         }
 
         do {
             let data = try JSONEncoder().encode(Baz(path: "/foo"))
-            XCTAssertThrowsError(try JSONDecoder().decode(Bar.self, from: data))
+            #expect(throws: (any Error).self) {
+                try JSONDecoder().decode(Bar.self, from: data)
+            }
         }
     }
 

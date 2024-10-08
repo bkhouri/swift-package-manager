@@ -9,204 +9,254 @@
 // See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
 //
 //===----------------------------------------------------------------------===//
+import Foundation
 
 import Basics
-import XCTest
+import Testing
 
-final class TripleTests: XCTestCase {
-    func testIsAppleIsDarwin() {
-        func XCTAssertTriple(
-            _ triple: String,
-            isApple: Bool,
-            isDarwin: Bool,
-            file: StaticString = #filePath,
-            line: UInt = #line
-        ) {
-            guard let triple = try? Triple(triple) else {
-                XCTFail(
-                    "Unknown triple '\(triple)'.",
-                    file: file,
-                    line: line)
-                return
-            }
-            XCTAssert(
-                isApple == triple.isApple(),
-                """
-                Expected triple '\(triple.tripleString)' \
-                \(isApple ? "" : " not") to be an Apple triple.
-                """,
-                file: file,
-                line: line)
-            XCTAssert(
-                isDarwin == triple.isDarwin(),
-                """
-                Expected triple '\(triple.tripleString)' \
-                \(isDarwin ? "" : " not") to be a Darwin triple.
-                """,
-                file: file,
-                line: line)
+
+
+struct TripleTests {
+    struct DataIsAppleIsDarwin {
+        var tripleName: String
+        var isApple: Bool
+        var isDarwin: Bool
+    }
+    @Test(
+        "Triple is Apple and i Darwin",
+        arguments: [
+            DataIsAppleIsDarwin(tripleName:"x86_64-pc-linux-gnu", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"x86_64-pc-linux-musl", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"powerpc-bgp-linux", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"arm-none-none-eabi", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"arm-none-linux-musleabi", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"wasm32-unknown-wasi", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"riscv64-unknown-linux", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"mips-mti-linux-gnu", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"mipsel-img-linux-gnu", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"mips64-mti-linux-gnu", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"mips64el-img-linux-gnu", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"mips64el-img-linux-gnuabin32", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"mips64-unknown-linux-gnuabi64", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"mips64-unknown-linux-gnuabin32", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"mipsel-unknown-linux-gnu", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"mips-unknown-linux-gnu", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"arm-oe-linux-gnueabi", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"aarch64-oe-linux", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"armv7em-unknown-none-macho", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"armv7em-apple-none-macho", isApple: true, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"armv7em-apple-none", isApple: true, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"aarch64-apple-macosx", isApple: true, isDarwin: true),
+            DataIsAppleIsDarwin(tripleName:"x86_64-apple-macosx", isApple: true, isDarwin: true),
+            DataIsAppleIsDarwin(tripleName:"x86_64-apple-macosx10.15", isApple: true, isDarwin: true),
+            DataIsAppleIsDarwin(tripleName:"x86_64h-apple-darwin", isApple: true, isDarwin: true),
+            DataIsAppleIsDarwin(tripleName:"i686-pc-windows-msvc", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"i686-pc-windows-gnu", isApple: false, isDarwin: false),
+            DataIsAppleIsDarwin(tripleName:"i686-pc-windows-cygnus", isApple: false, isDarwin: false)
+        ]
+    )
+    func isAppleIsDarwin(_ data: DataIsAppleIsDarwin) {
+        guard let triple = try? Triple(data.tripleName) else {
+            Issue.record("Unknown triple '\(data.tripleName)'.")
+            return
         }
-
-        XCTAssertTriple("x86_64-pc-linux-gnu", isApple: false, isDarwin: false)
-        XCTAssertTriple("x86_64-pc-linux-musl", isApple: false, isDarwin: false)
-        XCTAssertTriple("powerpc-bgp-linux", isApple: false, isDarwin: false)
-        XCTAssertTriple("arm-none-none-eabi", isApple: false, isDarwin: false)
-        XCTAssertTriple("arm-none-linux-musleabi", isApple: false, isDarwin: false)
-        XCTAssertTriple("wasm32-unknown-wasi", isApple: false, isDarwin: false)
-        XCTAssertTriple("riscv64-unknown-linux", isApple: false, isDarwin: false)
-        XCTAssertTriple("mips-mti-linux-gnu", isApple: false, isDarwin: false)
-        XCTAssertTriple("mipsel-img-linux-gnu", isApple: false, isDarwin: false)
-        XCTAssertTriple("mips64-mti-linux-gnu", isApple: false, isDarwin: false)
-        XCTAssertTriple("mips64el-img-linux-gnu", isApple: false, isDarwin: false)
-        XCTAssertTriple("mips64el-img-linux-gnuabin32", isApple: false, isDarwin: false)
-        XCTAssertTriple("mips64-unknown-linux-gnuabi64", isApple: false, isDarwin: false)
-        XCTAssertTriple("mips64-unknown-linux-gnuabin32", isApple: false, isDarwin: false)
-        XCTAssertTriple("mipsel-unknown-linux-gnu", isApple: false, isDarwin: false)
-        XCTAssertTriple("mips-unknown-linux-gnu", isApple: false, isDarwin: false)
-        XCTAssertTriple("arm-oe-linux-gnueabi", isApple: false, isDarwin: false)
-        XCTAssertTriple("aarch64-oe-linux", isApple: false, isDarwin: false)
-        XCTAssertTriple("armv7em-unknown-none-macho", isApple: false, isDarwin: false)
-        XCTAssertTriple("armv7em-apple-none-macho", isApple: true, isDarwin: false)
-        XCTAssertTriple("armv7em-apple-none", isApple: true, isDarwin: false)
-        XCTAssertTriple("aarch64-apple-macosx", isApple: true, isDarwin: true)
-        XCTAssertTriple("x86_64-apple-macosx", isApple: true, isDarwin: true)
-        XCTAssertTriple("x86_64-apple-macosx10.15", isApple: true, isDarwin: true)
-        XCTAssertTriple("x86_64h-apple-darwin", isApple: true, isDarwin: true)
-        XCTAssertTriple("i686-pc-windows-msvc", isApple: false, isDarwin: false)
-        XCTAssertTriple("i686-pc-windows-gnu", isApple: false, isDarwin: false)
-        XCTAssertTriple("i686-pc-windows-cygnus", isApple: false, isDarwin: false)
+        #expect(
+            data.isApple == triple.isApple(),
+            """
+            Expected triple '\(triple.tripleString)' \
+            \(data.isApple ? "" : " not") to be an Apple triple.
+            """
+        )
+        #expect(
+            data.isDarwin == triple.isDarwin(),
+            """
+            Expected triple '\(triple.tripleString)' \
+            \(data.isDarwin ? "" : " not") to be a Darwin triple.
+            """
+        )
     }
 
-    func testDescription() throws {
+    @Test
+    func description() throws {
         let triple = try Triple("x86_64-pc-linux-gnu")
-        XCTAssertEqual("foo \(triple) bar", "foo x86_64-pc-linux-gnu bar")
+        #expect("foo \(triple) bar" == "foo x86_64-pc-linux-gnu bar")
     }
 
-    func testTripleStringForPlatformVersion() throws {
-        func XCTAssertTriple(
-            _ triple: String,
-            forPlatformVersion version: String,
-            is expectedTriple: String,
-            file: StaticString = #filePath,
-            line: UInt = #line
-        ) {
-            guard let triple = try? Triple(triple) else {
-                XCTFail("Unknown triple '\(triple)'.", file: file, line: line)
-                return
-            }
-            let actualTriple = triple.tripleString(forPlatformVersion: version)
-            XCTAssert(
-                actualTriple == expectedTriple,
-                """
-                Actual triple '\(actualTriple)' did not match expected triple \
-                '\(expectedTriple)' for platform version '\(version)'.
-                """,
-                file: file,
-                line: line)
-        }
-
-        XCTAssertTriple("x86_64-apple-macosx", forPlatformVersion: "", is: "x86_64-apple-macosx")
-        XCTAssertTriple("x86_64-apple-macosx", forPlatformVersion: "13.0", is: "x86_64-apple-macosx13.0")
-
-        XCTAssertTriple("armv7em-apple-macosx10.12", forPlatformVersion: "", is: "armv7em-apple-macosx")
-        XCTAssertTriple("armv7em-apple-macosx10.12", forPlatformVersion: "13.0", is: "armv7em-apple-macosx13.0")
-
-        XCTAssertTriple("powerpc-apple-macos", forPlatformVersion: "", is: "powerpc-apple-macos")
-        XCTAssertTriple("powerpc-apple-macos", forPlatformVersion: "13.0", is: "powerpc-apple-macos13.0")
-
-        XCTAssertTriple("i686-apple-macos10.12.0", forPlatformVersion: "", is: "i686-apple-macos")
-        XCTAssertTriple("i686-apple-macos10.12.0", forPlatformVersion: "13.0", is: "i686-apple-macos13.0")
-
-        XCTAssertTriple("riscv64-apple-darwin", forPlatformVersion: "", is: "riscv64-apple-darwin")
-        XCTAssertTriple("riscv64-apple-darwin", forPlatformVersion: "22", is: "riscv64-apple-darwin22")
-
-        XCTAssertTriple("mips-apple-darwin19", forPlatformVersion: "", is: "mips-apple-darwin")
-        XCTAssertTriple("mips-apple-darwin19", forPlatformVersion: "22", is: "mips-apple-darwin22")
-
-        XCTAssertTriple("arm64-apple-ios-simulator", forPlatformVersion: "", is: "arm64-apple-ios-simulator")
-        XCTAssertTriple("arm64-apple-ios-simulator", forPlatformVersion: "13.0", is: "arm64-apple-ios13.0-simulator")
-
-        XCTAssertTriple("arm64-apple-ios12-simulator", forPlatformVersion: "", is: "arm64-apple-ios-simulator")
-        XCTAssertTriple("arm64-apple-ios12-simulator", forPlatformVersion: "13.0", is: "arm64-apple-ios13.0-simulator")
+    struct DataPlatformVersion {
+        var tripleName: String
+        var version: String // forPlatformVersion
+        var expectedTriple: String
     }
+    @Test(
+        "Triple String for Platform Version",
+        arguments: [
+            DataPlatformVersion(tripleName: "x86_64-apple-macosx", version: "", expectedTriple: "x86_64-apple-macosx"),
+            DataPlatformVersion(tripleName: "x86_64-apple-macosx", version: "13.0", expectedTriple: "x86_64-apple-macosx13.0"),
+            DataPlatformVersion(tripleName: "armv7em-apple-macosx10.12", version: "", expectedTriple: "armv7em-apple-macosx"),
+            DataPlatformVersion(tripleName: "armv7em-apple-macosx10.12", version: "13.0", expectedTriple: "armv7em-apple-macosx13.0"),
+            DataPlatformVersion(tripleName: "powerpc-apple-macos", version: "", expectedTriple: "powerpc-apple-macos"),
+            DataPlatformVersion(tripleName: "powerpc-apple-macos", version: "13.0", expectedTriple: "powerpc-apple-macos13.0"),
+            DataPlatformVersion(tripleName: "i686-apple-macos10.12.0", version: "", expectedTriple: "i686-apple-macos"),
+            DataPlatformVersion(tripleName: "i686-apple-macos10.12.0", version: "13.0", expectedTriple: "i686-apple-macos13.0"),
+            DataPlatformVersion(tripleName: "riscv64-apple-darwin", version: "", expectedTriple: "riscv64-apple-darwin"),
+            DataPlatformVersion(tripleName: "riscv64-apple-darwin", version: "22", expectedTriple: "riscv64-apple-darwin22"),
+            DataPlatformVersion(tripleName: "mips-apple-darwin19", version: "", expectedTriple: "mips-apple-darwin"),
+            DataPlatformVersion(tripleName: "mips-apple-darwin19", version: "22", expectedTriple: "mips-apple-darwin22"),
+            DataPlatformVersion(tripleName: "arm64-apple-ios-simulator", version: "", expectedTriple: "arm64-apple-ios-simulator"),
+            DataPlatformVersion(tripleName: "arm64-apple-ios-simulator", version: "13.0", expectedTriple: "arm64-apple-ios13.0-simulator"),
+            DataPlatformVersion(tripleName: "arm64-apple-ios12-simulator", version: "", expectedTriple: "arm64-apple-ios-simulator"),
+            DataPlatformVersion(tripleName: "arm64-apple-ios12-simulator", version: "13.0", expectedTriple: "arm64-apple-ios13.0-simulator")
+        ]
+    )
+    func tripleStringForPlatformVersion(_ data: DataPlatformVersion) throws {
+           guard let triple = try? Triple(data.tripleName) else {
+                Issue.record("Unknown triple '\(data.tripleName)'.")
+               return
+           }
+           let actualTriple = triple.tripleString(forPlatformVersion: data.version)
+            #expect(
+               actualTriple == data.expectedTriple,
+               """
+               Actual triple '\(actualTriple)' did not match expected triple \
+               '\(data.expectedTriple)' for platform version '\(data.version)'.
+               """
+            )
+   }
 
-    func testKnownTripleParsing() {
-        func XCTAssertTriple(
-            _ triple: String,
-            matches components: (
-                arch: Triple.Arch?,
-                subArch: Triple.SubArch?,
-                vendor: Triple.Vendor?,
-                os: Triple.OS?,
-                environment: Triple.Environment?,
-                objectFormat: Triple.ObjectFormat?),
-            file: StaticString = #filePath,
-            line: UInt = #line
-        ) {
-            guard let triple = try? Triple(triple) else {
-                XCTFail(
-                    "Unknown triple '\(triple)'.",
-                    file: file,
-                    line: line)
-                return
+    struct DataKnownTripleParsing {
+        var tripleName: String
+        var expectedArch: Triple.Arch?
+        var expectedSubArch: Triple.SubArch?
+        var expectedVendor: Triple.Vendor?
+        var expectedOs: Triple.OS?
+        var expectedEnvironment: Triple.Environment?
+        var expectedObjectFormat: Triple.ObjectFormat?
+    }
+    @Test(
+        "Known Triple Parsing",
+        arguments: [
+            DataKnownTripleParsing(
+                tripleName: "armv7em-apple-none-eabihf-macho",
+                expectedArch: .arm,
+                expectedSubArch : .arm(.v7em),
+                expectedVendor: .apple,
+                expectedOs: .noneOS,
+                expectedEnvironment: .eabihf,
+                expectedObjectFormat: .macho
+            ),
+            DataKnownTripleParsing(
+                tripleName: "x86_64-apple-macosx",
+                expectedArch: .x86_64,
+                expectedSubArch: nil,
+                expectedVendor: .apple,
+                expectedOs: .macosx,
+                expectedEnvironment: nil,
+                expectedObjectFormat: .macho
+            ),
+            DataKnownTripleParsing(
+                tripleName: "x86_64-unknown-linux-gnu",
+                expectedArch: .x86_64,
+                expectedSubArch: nil,
+                expectedVendor: nil,
+                expectedOs: .linux,
+                expectedEnvironment: .gnu,
+                expectedObjectFormat: .elf
+            ),
+            DataKnownTripleParsing(
+                tripleName: "aarch64-unknown-linux-gnu",
+                expectedArch: .aarch64,
+                expectedSubArch: nil,
+                expectedVendor: nil,
+                expectedOs: .linux,
+                expectedEnvironment: .gnu,
+                expectedObjectFormat: .elf
+            ),
+            DataKnownTripleParsing(
+                tripleName: "aarch64-unknown-linux-android",
+                expectedArch: .aarch64,
+                expectedSubArch: nil,
+                expectedVendor: nil,
+                expectedOs: .linux,
+                expectedEnvironment: .android,
+                expectedObjectFormat: .elf
+            ),
+            DataKnownTripleParsing(
+                tripleName: "x86_64-unknown-windows-msvc",
+                expectedArch: .x86_64,
+                expectedSubArch: nil,
+                expectedVendor: nil,
+                expectedOs: .win32,
+                expectedEnvironment: .msvc,
+                expectedObjectFormat: .coff
+            ),
+            DataKnownTripleParsing(
+                tripleName: "wasm32-unknown-wasi",
+                expectedArch: .wasm32,
+                expectedSubArch: nil,
+                expectedVendor: nil,
+                expectedOs: .wasi,
+                expectedEnvironment: nil,
+                expectedObjectFormat: .wasm
+            )
+        ]
+    )
+   func knownTripleParsing(_ data: DataKnownTripleParsing) {
+            guard let triple = try? Triple(data.tripleName) else {
+                Issue.record("Unknown triple '\(data.tripleName)'.")
+               return
             }
-            XCTAssertEqual(triple.arch, components.arch, file: file, line: line)
-            XCTAssertEqual(triple.subArch, components.subArch, file: file, line: line)
-            XCTAssertEqual(triple.vendor, components.vendor, file: file, line: line)
-            XCTAssertEqual(triple.os, components.os, file: file, line: line)
-            XCTAssertEqual(triple.environment, components.environment, file: file, line: line)
-            XCTAssertEqual(triple.objectFormat, components.objectFormat, file: file, line: line)
-        }
-        XCTAssertTriple("armv7em-apple-none-eabihf-macho", matches: (.arm, .arm(.v7em), .apple, .noneOS, .eabihf, .macho))
-        XCTAssertTriple("x86_64-apple-macosx", matches: (.x86_64, nil, .apple, .macosx, nil, .macho))
-        XCTAssertTriple("x86_64-unknown-linux-gnu", matches: (.x86_64, nil, nil, .linux, .gnu, .elf))
-        XCTAssertTriple("aarch64-unknown-linux-gnu", matches: (.aarch64, nil, nil, .linux, .gnu, .elf))
-        XCTAssertTriple("aarch64-unknown-linux-android", matches: (.aarch64, nil, nil, .linux, .android, .elf))
-        XCTAssertTriple("x86_64-unknown-windows-msvc", matches: (.x86_64, nil, nil, .win32, .msvc, .coff))
-        XCTAssertTriple("wasm32-unknown-wasi", matches: (.wasm32, nil, nil, .wasi, nil, .wasm))
-    }    
+            #expect(triple.arch == data.expectedArch)
+            #expect(triple.subArch == data.expectedSubArch)
+            #expect(triple.vendor == data.expectedVendor)
+            #expect(triple.os == data.expectedOs)
+            #expect(triple.environment == data.expectedEnvironment)
+            #expect(triple.objectFormat == data.expectedObjectFormat)
+   }
 
-    func testTriple() {
+    @Test
+    func tripleValidation() {
         let linux = try? Triple("x86_64-unknown-linux-gnu")
-        XCTAssertNotNil(linux)
-        XCTAssertEqual(linux!.os, .linux)
-        XCTAssertEqual(linux!.osVersion, Triple.Version.zero)
-        XCTAssertEqual(linux!.environment, .gnu)
+        #expect(linux != nil)
+        #expect(linux!.os == .linux)
+        #expect(linux!.osVersion == Triple.Version.zero)
+        #expect(linux!.environment == .gnu)
 
         let macos = try? Triple("x86_64-apple-macosx10.15")
-        XCTAssertNotNil(macos!)
-        XCTAssertEqual(macos!.osVersion, .init(parse: "10.15"))
+        #expect(macos! != nil)
+        #expect(macos!.osVersion == .init(parse: "10.15"))
         let newVersion = "10.12"
         let tripleString = macos!.tripleString(forPlatformVersion: newVersion)
-        XCTAssertEqual(tripleString, "x86_64-apple-macosx10.12")
+        #expect(tripleString == "x86_64-apple-macosx10.12")
         let macosNoX = try? Triple("x86_64-apple-macos12.2")
-        XCTAssertNotNil(macosNoX!)
-        XCTAssertEqual(macosNoX!.os, .macosx)
-        XCTAssertEqual(macosNoX!.osVersion, .init(parse: "12.2"))
+        #expect(macosNoX! != nil)
+        #expect(macosNoX!.os == .macosx)
+        #expect(macosNoX!.osVersion == .init(parse: "12.2"))
 
         let android = try? Triple("aarch64-unknown-linux-android24")
-        XCTAssertNotNil(android)
-        XCTAssertEqual(android!.os, .linux)
-        XCTAssertEqual(android!.environment, .android)
+        #expect(android != nil)
+        #expect(android!.os == .linux)
+        #expect(android!.environment == .android)
 
         let linuxWithABIVersion = try? Triple("x86_64-unknown-linux-gnu42")
-        XCTAssertEqual(linuxWithABIVersion!.environment, .gnu)
+        #expect(linuxWithABIVersion!.environment == .gnu)
     }
 
-    func testEquality() throws {
-        let macOSTriple = try Triple("arm64-apple-macos")
-        let macOSXTriple = try Triple("arm64-apple-macosx")
-        XCTAssertEqual(macOSTriple, macOSXTriple)
+    @Test
+   func equalityOperator() throws {
+       let macOSTriple = try Triple("arm64-apple-macos")
+       let macOSXTriple = try Triple("arm64-apple-macosx")
+        #expect(macOSTriple == macOSXTriple)
 
-        let intelMacOSTriple = try Triple("x86_64-apple-macos")
-        XCTAssertNotEqual(macOSTriple, intelMacOSTriple)
+       let intelMacOSTriple = try Triple("x86_64-apple-macos")
+        #expect(macOSTriple != intelMacOSTriple)
 
-        let linuxWithoutGNUABI = try Triple("x86_64-unknown-linux")
-        let linuxWithGNUABI = try Triple("x86_64-unknown-linux-gnu")
-        XCTAssertNotEqual(linuxWithoutGNUABI, linuxWithGNUABI)
-    }
+       let linuxWithoutGNUABI = try Triple("x86_64-unknown-linux")
+       let linuxWithGNUABI = try Triple("x86_64-unknown-linux-gnu")
+        #expect(linuxWithoutGNUABI != linuxWithGNUABI)
+   }
 
-    func testWASI() throws {
+    @Test
+    func WASI() throws {
         let wasi = try Triple("wasm32-unknown-wasi")
 
 
@@ -216,30 +266,46 @@ final class TripleTests: XCTestCase {
         _ = wasi.dynamicLibraryExtension
     }
 
-    func testNoneOSDynamicLibrary() throws {
-      // Dynamic libraries aren't actually supported for OS none, but swiftpm
-      // wants an extension to avoid crashing during build planning.
-      try XCTAssertEqual(
-          Triple("armv7em-unknown-none-coff").dynamicLibraryExtension,
-          ".coff")
-      try XCTAssertEqual(
-          Triple("armv7em-unknown-none-elf").dynamicLibraryExtension,
-          ".elf")
-      try XCTAssertEqual(
-          Triple("armv7em-unknown-none-macho").dynamicLibraryExtension,
-          ".macho")
-      try XCTAssertEqual(
-          Triple("armv7em-unknown-none-wasm").dynamicLibraryExtension,
-          ".wasm")
-      try XCTAssertEqual(
-          Triple("armv7em-unknown-none-xcoff").dynamicLibraryExtension,
-          ".xcoff")
+    struct DataNoneOsDynamicLibrary {
+        var tripleName: String
+        var expected: String
     }
 
-    func testIsRuntimeCompatibleWith() throws {
-        try XCTAssertTrue(Triple("x86_64-apple-macosx").isRuntimeCompatible(with: Triple("x86_64-apple-macosx")))
-        try XCTAssertTrue(Triple("x86_64-unknown-linux").isRuntimeCompatible(with: Triple("x86_64-unknown-linux")))
-        try XCTAssertFalse(Triple("x86_64-apple-macosx").isRuntimeCompatible(with: Triple("x86_64-apple-linux")))
-        try XCTAssertTrue(Triple("x86_64-apple-macosx14.0").isRuntimeCompatible(with: Triple("x86_64-apple-macosx13.0")))
+    @Test(
+        "Test dynamicLibraryExtesion attribute on Triple returns expected value",
+        arguments: [
+            DataNoneOsDynamicLibrary(tripleName: "armv7em-unknown-none-coff", expected: ".coff"),
+            DataNoneOsDynamicLibrary(tripleName: "armv7em-unknown-none-elf", expected: ".elf"),
+            DataNoneOsDynamicLibrary(tripleName: "armv7em-unknown-none-macho", expected: ".macho"),
+            DataNoneOsDynamicLibrary(tripleName: "armv7em-unknown-none-wasm", expected: ".wasm"),
+            DataNoneOsDynamicLibrary(tripleName: "armv7em-unknown-none-xcoff", expected: ".xcoff"),
+            DataNoneOsDynamicLibrary(tripleName: "wasm32-unknown-wasi", expected: ".wasm"), // Added by bkhouri
+        ]
+    )
+    func noneOSDynamicLibrary(_ data: DataNoneOsDynamicLibrary) throws {
+        // Dynamic libraries aren't actually supported for OS none, but swiftpm
+        // wants an extension to avoid crashing during build planning.
+        let triple = try Triple(data.tripleName)
+        #expect(triple.dynamicLibraryExtension == data.expected)
     }
+
+    struct DataIsRuntimeCompatibleWith {
+        var firstTripleName: String
+        var secondTripleName: String
+        var isCompatible: Bool
+    }
+    @Test(
+        "isRuntimeCompatibleWith returns expected value",
+        arguments:[
+            DataIsRuntimeCompatibleWith(firstTripleName: "x86_64-apple-macosx", secondTripleName: "x86_64-apple-macosx", isCompatible: true),
+            DataIsRuntimeCompatibleWith(firstTripleName: "x86_64-unknown-linux", secondTripleName: "x86_64-unknown-linux", isCompatible: true),
+            DataIsRuntimeCompatibleWith(firstTripleName: "x86_64-apple-macosx", secondTripleName: "x86_64-apple-linux", isCompatible: false),
+            DataIsRuntimeCompatibleWith(firstTripleName: "x86_64-apple-macosx14.0", secondTripleName: "x86_64-apple-macosx13.0", isCompatible: true),
+        ]
+    )
+    func isRuntimeCompatibleWith(_ data: DataIsRuntimeCompatibleWith) throws {
+        let triple = try Triple(data.firstTripleName)
+        let other = try Triple(data.secondTripleName)
+        #expect(triple.isRuntimeCompatible(with: other ) == data.isCompatible)
+   }
 }
