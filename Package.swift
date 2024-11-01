@@ -735,6 +735,10 @@ let package = Package(
             name: "BuildTests",
             dependencies: ["Build", "PackageModel", "Commands", "_InternalTestSupport"]
         ),
+        .testTarget(name: "IntegrationTests", dependencies: [
+            .product(name: "SwiftToolsSupport-auto", package: "swift-tools-support-core"),
+            .product(name: "TSCTestSupport", package: "swift-tools-support-core")
+        ]),
         .testTarget(
             name: "LLBuildManifestTests",
             dependencies: ["Basics", "LLBuildManifest", "_InternalTestSupport"]
