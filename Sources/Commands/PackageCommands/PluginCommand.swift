@@ -381,7 +381,9 @@ struct PluginCommand: AsyncSwiftCommand {
             delegate: pluginDelegate
         )
 
-        // TODO: We should also emit a final line of output regarding the result.
+        swiftCommandState.observabilityScope.emit(
+            info: "Finished running command plugin \(plugin) on package \(package) with options \(options) and arguments \(arguments)"
+        )
     }
 
     static func availableCommandPlugins(in graph: ModulesGraph, limitedTo packageIdentity: String?) -> [ResolvedModule] {

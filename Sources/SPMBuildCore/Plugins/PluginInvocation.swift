@@ -373,6 +373,10 @@ extension PluginModule {
                     return exitedCleanly
                 })
         }
+
+        observabilityScope.emit(
+            debug: "Finished running plugin script. name: \(self.name) with intialMessage: \(initialMessage)"
+        )
     }
 
     package func invoke(

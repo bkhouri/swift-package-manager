@@ -2319,13 +2319,60 @@ final class PackageCommandTests: CommandsTestCase {
     }
 
     // Test reporting of plugin diagnostic messages at different verbosity levels
+    func testCommandPluginLogEmitsWithVeryVerboseOutput() async throws {
+        // Only run the test if the environment in which we're running actually supports Swift concurrency (which the plugin APIs require).
+        try XCTSkipIf(!UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
+
+        try await fixture(name: "Miscellaneous/Plugins/CommandPluginTestStub") { fixturePath in
+            let (_, stderr) = try await SwiftPM.Package.execute(["--very-verbose", "print-diagnostics", "remark"], packagePath: fixturePath, env: ["SWIFT_DRIVER_SWIFTSCAN_LIB" : "/this/is/a/bad/path"])
+            let startedPluginCommand = StringPattern.contains("Running command plugin")
+            let finishedPluginScript = StringPattern.contains("Finished running plugin script")
+            let finishedPluginCommand = StringPattern.contains("Finished running command plugin")
+            XCTAssertMatch(stderr, startedPluginCommand)
+            XCTAssertMatch(stderr, finishedPluginScript)
+            XCTAssertMatch(stderr, finishedPluginCommand)
+        }
+    }
+
+    func testCommandPluginLogEmitsWithVerboseOutput() async throws {
+        // Only run the test if the environment in which we're running actually supports Swift concurrency (which the plugin APIs require).
+        try XCTSkipIf(!UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
+
+        try await fixture(name: "Miscellaneous/Plugins/CommandPluginTestStub") { fixturePath in
+            let (_, stderr) = try await SwiftPM.Package.execute(["--verbose", "print-diagnostics", "remark"], packagePath: fixturePath, env: ["SWIFT_DRIVER_SWIFTSCAN_LIB" : "/this/is/a/bad/path"])
+            let startedPluginCommand = StringPattern.contains("Running command plugin")
+            let finishedPluginScript = StringPattern.contains("Finished running plugin script")
+            let finishedPluginCommand = StringPattern.contains("Finished running command plugin")
+            XCTAssertMatch(stderr, startedPluginCommand)
+            XCTAssertNoMatch(stderr, finishedPluginScript)
+            XCTAssertMatch(stderr, finishedPluginCommand)
+        }
+    }
+    func testCommandPluginLogEmitsNoVerbosity() async throws {
+        // Only run the test if the environment in which we're running actually supports Swift concurrency (which the plugin APIs require).
+        try XCTSkipIf(!UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
+
+        try await fixture(name: "Miscellaneous/Plugins/CommandPluginTestStub") { fixturePath in
+            let (_, stderr) = try await SwiftPM.Package.execute(["print-diagnostics", "remark"], packagePath: fixturePath, env: ["SWIFT_DRIVER_SWIFTSCAN_LIB" : "/this/is/a/bad/path"])
+            let startedPluginCommand = StringPattern.contains("Running command plugin")
+            let finishedPluginScript = StringPattern.contains("Finished running plugin script")
+            let finishedPluginCommand = StringPattern.contains("Finished running command plugin")
+            XCTAssertNoMatch(stderr, startedPluginCommand)
+            XCTAssertNoMatch(stderr, finishedPluginScript)
+            XCTAssertNoMatch(stderr, finishedPluginCommand)
+        }
+    }
+
+
+    // Test reporting of plugin diagnostic messages at different verbosity levels
     func testCommandPluginDiagnostics() async throws {
         // Only run the test if the environment in which we're running actually supports Swift concurrency (which the plugin APIs require).
         try XCTSkipIf(!UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
 
-        throw XCTSkip("Skipping test due to flakiness, see https://github.com/swiftlang/swift-package-manager/issues/8180")
-
         // Match patterns for expected messages
+        let startedPluginCommand = StringPattern.contains("Running command plugin")
+        let finishedPluginScript = StringPattern.contains("Finished running plugin script")
+        let finishedPluginCommand = StringPattern.contains("Finished running command plugin")
         let isEmpty = StringPattern.equal("")
         let isOnlyPrint = StringPattern.equal("command plugin: print\n")
         let containsProgress = StringPattern.contains("[diagnostics-stub] command plugin: Diagnostics.progress")
@@ -2335,7 +2382,7 @@ final class PackageCommandTests: CommandsTestCase {
 
         try await fixture(name: "Miscellaneous/Plugins/CommandPluginTestStub") { fixturePath in
             func runPlugin(flags: [String], diagnostics: [String], completion: (String, String) -> Void) async throws {
-                let (stdout, stderr) = try await SwiftPM.Package.execute(flags + ["print-diagnostics"] + diagnostics, packagePath: fixturePath, env: ["SWIFT_DRIVER_SWIFTSCAN_LIB" : "/this/is/a/bad/path"])
+                let (stdout, stderr) = try await SwiftPM.Package.execute(flags + [ "print-diagnostics"] + diagnostics, packagePath: fixturePath, env: ["SWIFT_DRIVER_SWIFTSCAN_LIB" : "/this/is/a/bad/path"])
                 completion(stdout, stderr)
             }
 
@@ -2358,22 +2405,34 @@ final class PackageCommandTests: CommandsTestCase {
                 let filteredStderr = stderr.components(separatedBy: "\n")
                   .filter { !$0.contains("Unable to locate libSwiftScan") }.joined(separator: "\n")
                 XCTAssertMatch(filteredStderr, isEmpty)
+                XCTAssertNoMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertNoMatch(stderr, finishedPluginCommand)
             }
 
             try await runPlugin(flags: [], diagnostics: ["print", "progress"]) { stdout, stderr in
                 XCTAssertMatch(stdout, isOnlyPrint)
                 XCTAssertMatch(stderr, containsProgress)
+                XCTAssertNoMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertNoMatch(stderr, finishedPluginCommand)
             }
 
             try await runPlugin(flags: [], diagnostics: ["print", "progress", "remark"]) { stdout, stderr in
             	XCTAssertMatch(stdout, isOnlyPrint)
                 XCTAssertMatch(stderr, containsProgress)
+                XCTAssertNoMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertNoMatch(stderr, finishedPluginCommand)
             }
 
             try await runPlugin(flags: [], diagnostics: ["print", "progress", "remark", "warning"]) { stdout, stderr in
             	XCTAssertMatch(stdout, isOnlyPrint)
             	XCTAssertMatch(stderr, containsProgress)
                 XCTAssertMatch(stderr, containsWarning)
+                XCTAssertNoMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertNoMatch(stderr, finishedPluginCommand)
             }
 
          	  try await runPluginWithError(flags: [], diagnostics: ["print", "progress", "remark", "warning", "error"]) { stdout, stderr in
@@ -2381,6 +2440,9 @@ final class PackageCommandTests: CommandsTestCase {
                 XCTAssertMatch(stderr, containsProgress)
                 XCTAssertMatch(stderr, containsWarning)
                 XCTAssertMatch(stderr, containsError)
+                XCTAssertNoMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertNoMatch(stderr, finishedPluginCommand)
             }
 
             // Quiet Mode
@@ -2392,21 +2454,33 @@ final class PackageCommandTests: CommandsTestCase {
                 let filteredStderr = stderr.components(separatedBy: "\n")
                   .filter { !$0.contains("Unable to locate libSwiftScan") }.joined(separator: "\n")
                 XCTAssertMatch(filteredStderr, isEmpty)
+                XCTAssertNoMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertNoMatch(stderr, finishedPluginCommand)
             }
 
             try await runPlugin(flags: ["-q"], diagnostics: ["print", "progress"]) { stdout, stderr in
             	XCTAssertMatch(stdout, isOnlyPrint)
                 XCTAssertMatch(stderr, containsProgress)
+                XCTAssertNoMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertNoMatch(stderr, finishedPluginCommand)
             }
 
             try await runPlugin(flags: ["-q"], diagnostics: ["print", "progress", "remark"]) { stdout, stderr in
             	XCTAssertMatch(stdout, isOnlyPrint)
                 XCTAssertMatch(stderr, containsProgress)
+                XCTAssertNoMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertNoMatch(stderr, finishedPluginCommand)
             }
 
             try await runPlugin(flags: ["-q"], diagnostics: ["print", "progress", "remark", "warning"]) { stdout, stderr in
             	XCTAssertMatch(stdout, isOnlyPrint)
                 XCTAssertMatch(stderr, containsProgress)
+                XCTAssertNoMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertNoMatch(stderr, finishedPluginCommand)
             }
 
             try await runPluginWithError(flags: ["-q"], diagnostics: ["print", "progress", "remark", "warning", "error"]) { stdout, stderr in
@@ -2415,6 +2489,9 @@ final class PackageCommandTests: CommandsTestCase {
             	XCTAssertNoMatch(stderr, containsRemark)
                 XCTAssertNoMatch(stderr, containsWarning)
                 XCTAssertMatch(stderr, containsError)
+                XCTAssertNoMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertNoMatch(stderr, finishedPluginCommand)
             }
 
             // Verbose Mode
@@ -2425,17 +2502,26 @@ final class PackageCommandTests: CommandsTestCase {
             try await runPlugin(flags: ["-v"], diagnostics: ["print"]) { stdout, stderr in
                 XCTAssertMatch(stdout, isOnlyPrint)
                 // At this level stderr contains extra compiler output even if the plugin does not print diagnostics
+                XCTAssertMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertMatch(stderr, finishedPluginCommand)
             }
 
             try await runPlugin(flags: ["-v"], diagnostics: ["print", "progress"]) { stdout, stderr in
             	XCTAssertMatch(stdout, isOnlyPrint)
             	XCTAssertMatch(stderr, containsProgress)
+                XCTAssertMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertMatch(stderr, finishedPluginCommand)
             }
 
             try await runPlugin(flags: ["-v"], diagnostics: ["print", "progress", "remark"]) { stdout, stderr in
             	XCTAssertMatch(stdout, isOnlyPrint)
             	XCTAssertMatch(stderr, containsProgress)
                 XCTAssertMatch(stderr, containsRemark)
+                XCTAssertMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertMatch(stderr, finishedPluginCommand)
             }
 
             try await runPlugin(flags: ["-v"], diagnostics: ["print", "progress", "remark", "warning"]) { stdout, stderr in
@@ -2443,6 +2529,9 @@ final class PackageCommandTests: CommandsTestCase {
             	XCTAssertMatch(stderr, containsProgress)
                 XCTAssertMatch(stderr, containsRemark)
                 XCTAssertMatch(stderr, containsWarning)
+                XCTAssertMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertMatch(stderr, finishedPluginCommand)
             }
 
             try await runPluginWithError(flags: ["-v"], diagnostics: ["print", "progress", "remark", "warning", "error"]) { stdout, stderr in
@@ -2451,6 +2540,20 @@ final class PackageCommandTests: CommandsTestCase {
             	XCTAssertMatch(stderr, containsRemark)
                 XCTAssertMatch(stderr, containsWarning)
                 XCTAssertMatch(stderr, containsError)
+                XCTAssertMatch(stderr, startedPluginCommand)
+                XCTAssertNoMatch(stderr, finishedPluginScript)
+                XCTAssertMatch(stderr, finishedPluginCommand)
+            }
+
+            try await runPluginWithError(flags: ["--very-verbose"], diagnostics: ["print", "progress", "remark", "warning", "error"]) { stdout, stderr in
+                XCTAssertMatch(stdout, isOnlyPrint)
+                XCTAssertMatch(stderr, containsProgress)
+                XCTAssertMatch(stderr, containsRemark)
+                XCTAssertMatch(stderr, containsWarning)
+                XCTAssertMatch(stderr, containsError)
+                XCTAssertMatch(stderr, startedPluginCommand)
+                XCTAssertMatch(stderr, finishedPluginScript)
+                XCTAssertMatch(stderr, finishedPluginCommand)
             }
         }
     }
