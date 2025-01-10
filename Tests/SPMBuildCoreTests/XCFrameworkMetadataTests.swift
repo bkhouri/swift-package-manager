@@ -12,10 +12,11 @@
 
 import class Basics.InMemoryFileSystem
 import SPMBuildCore
-import XCTest
+import Testing
 
-final class XCFrameworkMetadataTests: XCTestCase {
-    func testParseFramework() throws {
+struct XCFrameworkMetadataTests {
+    @Test
+    func parseFramework() throws {
         let fileSystem = InMemoryFileSystem(files: [
             "/Info.plist":  """
             <?xml version="1.0" encoding="UTF-8"?>
@@ -62,8 +63,7 @@ final class XCFrameworkMetadataTests: XCTestCase {
         ])
 
         let metadata = try XCFrameworkMetadata.parse(fileSystem: fileSystem, rootPath: .root)
-        XCTAssertEqual(metadata,
-                       XCFrameworkMetadata(libraries: [
+        #expect(metadata == XCFrameworkMetadata(libraries: [
                            XCFrameworkMetadata.Library(
                                libraryIdentifier: "macos-x86_64",
                                libraryPath: "MyFramework.framework",
@@ -83,7 +83,8 @@ final class XCFrameworkMetadataTests: XCTestCase {
                        ]))
     }
 
-    func testParseLibrary() throws {
+    @Test
+    func parseLibrary() throws {
         let fileSystem = InMemoryFileSystem(files: [
             "/Info.plist": """
             <?xml version="1.0" encoding="UTF-8"?>
@@ -117,8 +118,7 @@ final class XCFrameworkMetadataTests: XCTestCase {
         ])
 
         let metadata = try XCFrameworkMetadata.parse(fileSystem: fileSystem, rootPath: .root)
-        XCTAssertEqual(metadata,
-                       XCFrameworkMetadata(
+        #expect(metadata == XCFrameworkMetadata(
                            libraries: [
                                XCFrameworkMetadata.Library(
                                    libraryIdentifier: "macos-x86_64",

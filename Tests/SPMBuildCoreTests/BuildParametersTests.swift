@@ -9,23 +9,23 @@
 // See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
 //
 //===----------------------------------------------------------------------===//
+import Foundation
 
 @testable import SPMBuildCore
 import Basics
 import struct PackageModel.BuildEnvironment
 import _InternalTestSupport
-import XCTest
+import Testing
 
-final class BuildParametersTests: XCTestCase {
-    func testConfigurationDependentProperties() throws {
-        // Ensure that properties that depend on the "configuration" property are
-        // correctly updated after modifying the configuration.
+struct BuildParametersTests {
+    @Test
+    func configurationDependentProperties() throws {
         var parameters = mockBuildParameters(
             destination: .host,
             environment: BuildEnvironment(platform: .linux, configuration: .debug)
         )
-        XCTAssertEqual(parameters.enableTestability, true)
+        #expect(parameters.enableTestability)
         parameters.configuration = .release
-        XCTAssertEqual(parameters.enableTestability, false)
+        #expect(!parameters.enableTestability)
     }
 }
