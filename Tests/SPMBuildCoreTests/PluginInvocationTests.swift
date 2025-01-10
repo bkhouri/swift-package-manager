@@ -9,6 +9,7 @@
 // See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
 //
 //===----------------------------------------------------------------------===//
+import Foundation
 
 @_spi(SwiftPMInternal)
 import Basics
@@ -24,16 +25,25 @@ import PackageModel
 @testable import SPMBuildCore
 import _InternalTestSupport
 import Workspace
-import XCTest
+import Testing
 
 @testable import class Build.BuildPlan
 import struct Build.PluginConfiguration
 
 import struct TSCUtility.SerializedDiagnostics
 
-final class PluginInvocationTests: XCTestCase {
-    func testBasics() async throws {
-        // Construct a canned file system and package graph with a single package and a library that uses a build tool plugin that invokes a tool.
+
+extension Trait where Self == Testing.ConditionTrait {
+    public static var foo: Self {
+        .disabled("dfeskipping because test environment doesn't support concurrency")
+        // disabled(if: try !UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
+        // .disabled(if: true, "skipping because test environment doesn't support concurrency")
+    }
+}
+
+struct PluginInvocationTests {
+    @Test
+    func basics() async throws {
         let fileSystem = InMemoryFileSystem(emptyFiles:
             "/Foo/Plugins/FooPlugin/source.swift",
             "/Foo/Sources/FooTool/source.swift",
@@ -84,7 +94,7 @@ final class PluginInvocationTests: XCTestCase {
         )
 
         // Check the basic integrity before running plugins.
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
         PackageGraphTester(graph) { graph in
             graph.check(packages: "Foo")
             graph.check(modules: "Foo", "FooPlugin", "FooTool", "FooToolLib")
@@ -118,10 +128,10 @@ final class PluginInvocationTests: XCTestCase {
             buildPlanResult.checkTargetsCount(5) // Note: plugins are not included here.
 
             buildPlanResult.check(destination: .target, for: "Foo")
-            
+
             buildPlanResult.check(destination: .host, for: "FooTool")
             buildPlanResult.check(destination: .target, for: "FooTool")
-            
+
             buildPlanResult.check(destination: .host, for: "FooToolLib")
             buildPlanResult.check(destination: .target, for: "FooToolLib")
         }
@@ -133,7 +143,7 @@ final class PluginInvocationTests: XCTestCase {
                     return try UserToolchain.default.targetTriple
                 }
             }
-            
+
             func compilePluginScript(
                 sourceFiles: [AbsolutePath],
                 pluginName: String,
@@ -147,7 +157,7 @@ final class PluginInvocationTests: XCTestCase {
                     completion(.failure(StringError("unimplemented")))
                 }
             }
-            
+
             func runPluginScript(
                 sourceFiles: [AbsolutePath],
                 pluginName: String,
@@ -164,14 +174,14 @@ final class PluginInvocationTests: XCTestCase {
                 completion: @escaping (Result<Int32, Error>) -> Void
             ) {
                 // Check that we were given the right sources.
-                XCTAssertEqual(sourceFiles, ["/Foo/Plugins/FooPlugin/source.swift"])
+                #expect(sourceFiles == ["/Foo/Plugins/FooPlugin/source.swift"])
 
                 do {
                     // Pretend the plugin emitted some output.
                     callbackQueue.sync {
                         delegate.handleOutput(data: Data("Hello Plugin!".utf8))
                     }
-                    
+
                     // Pretend it emitted a warning.
                     try callbackQueue.sync {
                         let message = Data("""
@@ -245,34 +255,35 @@ final class PluginInvocationTests: XCTestCase {
         let builtToolsDir = AbsolutePath("/path/to/build/\(buildParameters.triple)/debug")
 
         // Check the canned output to make sure nothing was lost in transport.
-        XCTAssertNoDiagnostics(observability.diagnostics)
-        XCTAssertEqual(results.count, 1)
-        let (_, (evalTarget, evalResults)) = try XCTUnwrap(results.first)
-        XCTAssertEqual(evalTarget.name, "Foo")
+        try requireNoDiagnostics(observability.diagnostics)
+        #expect(results.count == 1)
+        let (_, (evalTarget, evalResults)) = try #require(results.first)
+        #expect(evalTarget.name == "Foo")
 
-        XCTAssertEqual(evalResults.count, 1)
-        let evalFirstResult = try XCTUnwrap(evalResults.first)
-        XCTAssertEqual(evalFirstResult.prebuildCommands.count, 0)
-        XCTAssertEqual(evalFirstResult.buildCommands.count, 1)
-        let evalFirstCommand = try XCTUnwrap(evalFirstResult.buildCommands.first)
-        XCTAssertEqual(evalFirstCommand.configuration.displayName, "Do something")
-        XCTAssertEqual(evalFirstCommand.configuration.executable, AbsolutePath("/bin/FooTool"))
-        XCTAssertEqual(evalFirstCommand.configuration.arguments, ["-c", "/Foo/Sources/Foo/SomeFile.abc"])
-        XCTAssertEqual(evalFirstCommand.configuration.environment, ["X": "Y"])
-        XCTAssertEqual(evalFirstCommand.configuration.workingDirectory, AbsolutePath("/Foo/Sources/Foo"))
-        XCTAssertEqual(evalFirstCommand.inputFiles, [builtToolsDir.appending("FooTool")])
-        XCTAssertEqual(evalFirstCommand.outputFiles, [])
+        #expect(evalResults.count == 1)
+        let evalFirstResult = try #require(evalResults.first)
+        #expect(evalFirstResult.prebuildCommands.count == 0)
+        #expect(evalFirstResult.buildCommands.count == 1)
+        let evalFirstCommand = try #require(evalFirstResult.buildCommands.first)
+        #expect(evalFirstCommand.configuration.displayName == "Do something")
+        #expect(evalFirstCommand.configuration.executable == AbsolutePath("/bin/FooTool"))
+        #expect(evalFirstCommand.configuration.arguments == ["-c", "/Foo/Sources/Foo/SomeFile.abc"])
+        #expect(evalFirstCommand.configuration.environment == ["X": "Y"])
+        #expect(evalFirstCommand.configuration.workingDirectory == AbsolutePath("/Foo/Sources/Foo"))
+        #expect(evalFirstCommand.inputFiles == [builtToolsDir.appending("FooTool")])
+        #expect(evalFirstCommand.outputFiles == [])
 
-        XCTAssertEqual(evalFirstResult.diagnostics.count, 1)
-        let evalFirstDiagnostic = try XCTUnwrap(evalFirstResult.diagnostics.first)
-        XCTAssertEqual(evalFirstDiagnostic.severity, .warning)
-        XCTAssertEqual(evalFirstDiagnostic.message, "A warning")
-        XCTAssertEqual(evalFirstDiagnostic.metadata?.fileLocation, FileLocation("/Foo/Sources/Foo/SomeFile.abc", line: 42))
+        #expect(evalFirstResult.diagnostics.count == 1)
+        let evalFirstDiagnostic = try #require(evalFirstResult.diagnostics.first)
+        #expect(evalFirstDiagnostic.severity == .warning)
+        #expect(evalFirstDiagnostic.message == "A warning")
+        #expect(evalFirstDiagnostic.metadata?.fileLocation == FileLocation("/Foo/Sources/Foo/SomeFile.abc", line: 42))
 
-        XCTAssertEqual(evalFirstResult.textOutput, "Hello Plugin!")
+        #expect(evalFirstResult.textOutput == "Hello Plugin!")
     }
-    
-    func testCompilationDiagnostics() async throws {
+
+    @Test
+    func compilationDiagnostics() async throws {
         try await testWithTemporaryDirectory { tmpPath in
             // Create a sample package with a library target and a plugin.
             let packageDir = tmpPath.appending(components: "MyPackage")
@@ -296,13 +307,13 @@ final class PluginInvocationTests: XCTestCase {
                     ]
                 )
                 """)
-            
+
             let myLibraryTargetDir = packageDir.appending(components: "Sources", "MyLibrary")
             try localFileSystem.createDirectory(myLibraryTargetDir, recursive: true)
             try localFileSystem.writeFileContents(myLibraryTargetDir.appending("library.swift"), string: """
                 public func Foo() { }
                 """)
-            
+
             let myPluginTargetDir = packageDir.appending(components: "Plugins", "MyPlugin")
             try localFileSystem.createDirectory(myPluginTargetDir, recursive: true)
             try localFileSystem.writeFileContents(myPluginTargetDir.appending("plugin.swift"), string: """
@@ -325,27 +336,27 @@ final class PluginInvocationTests: XCTestCase {
                 customManifestLoader: ManifestLoader(toolchain: UserToolchain.default),
                 delegate: MockWorkspaceDelegate()
             )
-            
+
             // Load the root manifest.
             let rootInput = PackageGraphRootInput(packages: [packageDir], dependencies: [])
             let rootManifests = try await workspace.loadRootManifests(
                 packages: rootInput.packages,
                 observabilityScope: observability.topScope
             )
-            XCTAssert(rootManifests.count == 1, "\(rootManifests)")
+            #expect(rootManifests.count == 1, "\(rootManifests)")
 
             // Load the package graph.
             let packageGraph = try await workspace.loadPackageGraph(
                 rootInput: rootInput,
                 observabilityScope: observability.topScope
             )
-            XCTAssertNoDiagnostics(observability.diagnostics)
-            XCTAssert(packageGraph.packages.count == 1, "\(packageGraph.packages)")
-            
+            try requireNoDiagnostics(observability.diagnostics)
+            #expect(packageGraph.packages.count == 1, "\(packageGraph.packages)")
+
             // Find the build tool plugin.
-            let buildToolPlugin = try XCTUnwrap(packageGraph.packages.first?.modules.map(\.underlying).first{ $0.name == "MyPlugin" } as? PluginModule)
-            XCTAssertEqual(buildToolPlugin.name, "MyPlugin")
-            XCTAssertEqual(buildToolPlugin.capability, .buildTool)
+            let buildToolPlugin = try #require(packageGraph.packages.first?.modules.map(\.underlying).first{ $0.name == "MyPlugin" } as? PluginModule)
+            #expect(buildToolPlugin.name == "MyPlugin")
+            #expect(buildToolPlugin.capability == .buildTool)
 
             // Create a plugin script runner for the duration of the test.
             let pluginCacheDir = tmpPath.appending("plugin-cache")
@@ -354,7 +365,7 @@ final class PluginInvocationTests: XCTestCase {
                 cacheDir: pluginCacheDir,
                 toolchain: try UserToolchain.default
             )
-            
+
             // Define a plugin compilation delegate that just captures the passed information.
             class Delegate: PluginScriptCompilerDelegate {
                 var commandLine: [String]? 
@@ -388,28 +399,28 @@ final class PluginInvocationTests: XCTestCase {
                 )
 
                 // This should invoke the compiler but should fail.
-                XCTAssert(result.succeeded == false)
-                XCTAssert(result.cached == false)
-                XCTAssert(result.commandLine.contains(result.executableFile.pathString), "\(result.commandLine)")
-                XCTAssert(result.executableFile.components.contains("plugin-cache"), "\(result.executableFile.pathString)")
-                XCTAssert(result.compilerOutput.contains("error: missing return"), "\(result.compilerOutput)")
-                XCTAssert(result.diagnosticsFile.suffix == ".dia", "\(result.diagnosticsFile.pathString)")
+                #expect(result.succeeded == false)
+                #expect(result.cached == false)
+                #expect(result.commandLine.contains(result.executableFile.pathString), "\(result.commandLine)")
+                #expect(result.executableFile.components.contains("plugin-cache"), "\(result.executableFile.pathString)")
+                #expect(result.compilerOutput.contains("error: missing return"), "\(result.compilerOutput)")
+                #expect(result.diagnosticsFile.suffix == ".dia", "\(result.diagnosticsFile.pathString)")
 
                 // Check the delegate callbacks.
-                XCTAssertEqual(delegate.commandLine, result.commandLine)
-                XCTAssertNotNil(delegate.environment)
-                XCTAssertEqual(delegate.compiledResult, result)
-                XCTAssertNil(delegate.cachedResult)
-                
+                #expect(delegate.commandLine == result.commandLine)
+                #expect(delegate.environment != nil)
+                #expect(delegate.compiledResult == result)
+                #expect(delegate.cachedResult == nil)
+
                 // Check the serialized diagnostics. We should have an error.
                 let diaFileContents = try localFileSystem.readFileContents(result.diagnosticsFile)
                 let diagnosticsSet = try SerializedDiagnostics(bytes: diaFileContents)
-                XCTAssertEqual(diagnosticsSet.diagnostics.count, 1)
-                let errorDiagnostic = try XCTUnwrap(diagnosticsSet.diagnostics.first)
-                XCTAssertTrue(errorDiagnostic.text.hasPrefix("missing return"), "\(errorDiagnostic)")
+                #expect(diagnosticsSet.diagnostics.count == 1)
+                let errorDiagnostic = try #require(diagnosticsSet.diagnostics.first)
+                #expect(errorDiagnostic.text.hasPrefix("missing return"), "\(errorDiagnostic)")
 
                 // Check that the executable file doesn't exist.
-                XCTAssertFalse(localFileSystem.exists(result.executableFile), "\(result.executableFile.pathString)")
+                #expect(!localFileSystem.exists(result.executableFile), "\(result.executableFile.pathString)")
             }
 
             // Now replace the plugin script source with syntactically valid contents that still produces a warning.
@@ -425,7 +436,7 @@ final class PluginInvocationTests: XCTestCase {
                     }
                 }
                 """)
-            
+
             // Try to compile the fixed plugin.
             let firstExecModTime: Date
             do {
@@ -440,18 +451,18 @@ final class PluginInvocationTests: XCTestCase {
                 )
 
                 // This should invoke the compiler and this time should succeed.
-                XCTAssert(result.succeeded == true)
-                XCTAssert(result.cached == false)
-                XCTAssert(result.commandLine.contains(result.executableFile.pathString), "\(result.commandLine)")
-                XCTAssert(result.executableFile.components.contains("plugin-cache"), "\(result.executableFile.pathString)")
-                XCTAssert(result.compilerOutput.contains("warning: variable 'unused' was never used"), "\(result.compilerOutput)")
-                XCTAssert(result.diagnosticsFile.suffix == ".dia", "\(result.diagnosticsFile.pathString)")
+                #expect(result.succeeded == true)
+                #expect(result.cached == false)
+                #expect(result.commandLine.contains(result.executableFile.pathString), "\(result.commandLine)")
+                #expect(result.executableFile.components.contains("plugin-cache"), "\(result.executableFile.pathString)")
+                #expect(result.compilerOutput.contains("warning: variable 'unused' was never used"), "\(result.compilerOutput)")
+                #expect(result.diagnosticsFile.suffix == ".dia", "\(result.diagnosticsFile.pathString)")
 
                 // Check the delegate callbacks.
-                XCTAssertEqual(delegate.commandLine, result.commandLine)
-                XCTAssertNotNil(delegate.environment)
-                XCTAssertEqual(delegate.compiledResult, result)
-                XCTAssertNil(delegate.cachedResult)
+                #expect(delegate.commandLine == result.commandLine)
+                #expect(delegate.environment != nil)
+                #expect(delegate.compiledResult == result)
+                #expect(delegate.cachedResult == nil)
 
                 if try UserToolchain.default.supportsSerializedDiagnostics() {
                     // Check the serialized diagnostics. We should no longer have an error but now have a warning.
@@ -461,16 +472,16 @@ final class PluginInvocationTests: XCTestCase {
                     let warningDiagnosticText = diagnosticsSet.diagnostics.first?.text ?? ""
                     let hasExpectedWarningText = warningDiagnosticText.hasPrefix("variable \'unused\' was never used")
                     if hasExpectedDiagnosticsCount && hasExpectedWarningText {
-                        XCTAssertTrue(hasExpectedDiagnosticsCount, "unexpected diagnostics count in \(diagnosticsSet.diagnostics) from \(result.diagnosticsFile.pathString)")
-                        XCTAssertTrue(hasExpectedWarningText, "\(warningDiagnosticText)")
+                        #expect(hasExpectedDiagnosticsCount, "unexpected diagnostics count in \(diagnosticsSet.diagnostics) from \(result.diagnosticsFile.pathString)")
+                        #expect(hasExpectedWarningText, "\(warningDiagnosticText)")
                     } else {
                         print("bytes of serialized diagnostics file `\(result.diagnosticsFile.pathString)`: \(diaFileContents.contents)")
-                        try XCTSkipIf(true, "skipping because of unknown serialized diagnostics issue")
+                        try #require(Bool(false), "failed because of unknown serialized diagnostics issue")
                     }
                 }
 
                 // Check that the executable file exists.
-                XCTAssertTrue(localFileSystem.exists(result.executableFile), "\(result.executableFile.pathString)")
+                #expect(localFileSystem.exists(result.executableFile), "\(result.executableFile.pathString)")
 
                 // Capture the timestamp of the executable so we can compare it later.
                 firstExecModTime = try localFileSystem.getFileInfo(result.executableFile).modTime
@@ -490,34 +501,34 @@ final class PluginInvocationTests: XCTestCase {
                 )
 
                 // This should not invoke the compiler (just reuse the cached executable).
-                XCTAssert(result.succeeded == true)
-                XCTAssert(result.cached == true)
-                XCTAssert(result.commandLine.contains(result.executableFile.pathString), "\(result.commandLine)")
-                XCTAssert(result.executableFile.components.contains("plugin-cache"), "\(result.executableFile.pathString)")
-                XCTAssert(result.compilerOutput.contains("warning: variable 'unused' was never used"), "\(result.compilerOutput)")
-                XCTAssert(result.diagnosticsFile.suffix == ".dia", "\(result.diagnosticsFile.pathString)")
+                #expect(result.succeeded == true)
+                #expect(result.cached == true)
+                #expect(result.commandLine.contains(result.executableFile.pathString), "\(result.commandLine)")
+                #expect(result.executableFile.components.contains("plugin-cache"), "\(result.executableFile.pathString)")
+                #expect(result.compilerOutput.contains("warning: variable 'unused' was never used"), "\(result.compilerOutput)")
+                #expect(result.diagnosticsFile.suffix == ".dia", "\(result.diagnosticsFile.pathString)")
 
                 // Check the delegate callbacks. Note that the nil command line and environment indicates that we didn't get the callback saying that compilation will start; this is expected when the cache is reused. This is a behaviour of our test delegate. The command line is available in the cached result.
-                XCTAssertNil(delegate.commandLine)
-                XCTAssertNil(delegate.environment)
-                XCTAssertNil(delegate.compiledResult)
-                XCTAssertEqual(delegate.cachedResult, result)
+                #expect(delegate.commandLine == nil)
+                #expect(delegate.environment == nil)
+                #expect(delegate.compiledResult == nil)
+                #expect(delegate.cachedResult == result)
 
                 if try UserToolchain.default.supportsSerializedDiagnostics() {
                     // Check that the diagnostics still have the same warning as before.
                     let diaFileContents = try localFileSystem.readFileContents(result.diagnosticsFile)
                     let diagnosticsSet = try SerializedDiagnostics(bytes: diaFileContents)
-                    XCTAssertEqual(diagnosticsSet.diagnostics.count, 1)
-                    let warningDiagnostic = try XCTUnwrap(diagnosticsSet.diagnostics.first)
-                    XCTAssertTrue(warningDiagnostic.text.hasPrefix("variable \'unused\' was never used"), "\(warningDiagnostic)")
+                    #expect(diagnosticsSet.diagnostics.count == 1)
+                    let warningDiagnostic = try #require(diagnosticsSet.diagnostics.first)
+                    #expect(warningDiagnostic.text.hasPrefix("variable \'unused\' was never used"), "\(warningDiagnostic)")
                 }
 
                 // Check that the executable file exists.
-                XCTAssertTrue(localFileSystem.exists(result.executableFile), "\(result.executableFile.pathString)")
+                #expect(localFileSystem.exists(result.executableFile), "\(result.executableFile.pathString)")
 
                 // Check that the timestamp hasn't changed (at least a mild indication that it wasn't recompiled).
                 secondExecModTime = try localFileSystem.getFileInfo(result.executableFile).modTime
-                XCTAssert(secondExecModTime == firstExecModTime, "firstExecModTime: \(firstExecModTime), secondExecModTime: \(secondExecModTime)")
+                #expect(secondExecModTime == firstExecModTime, "firstExecModTime: \(firstExecModTime), secondExecModTime: \(secondExecModTime)")
             }
 
             // Now replace the plugin script source with syntactically valid contents that no longer produces a warning.
@@ -552,31 +563,31 @@ final class PluginInvocationTests: XCTestCase {
                 )
 
                 // This should invoke the compiler and not use the cache.
-                XCTAssert(result.succeeded == true)
-                XCTAssert(result.cached == false)
-                XCTAssert(result.commandLine.contains(result.executableFile.pathString), "\(result.commandLine)")
-                XCTAssert(result.executableFile.components.contains("plugin-cache"), "\(result.executableFile.pathString)")
-                XCTAssert(!result.compilerOutput.contains("warning:"), "\(result.compilerOutput)")
-                XCTAssert(result.diagnosticsFile.suffix == ".dia", "\(result.diagnosticsFile.pathString)")
+                #expect(result.succeeded == true)
+                #expect(result.cached == false)
+                #expect(result.commandLine.contains(result.executableFile.pathString), "\(result.commandLine)")
+                #expect(result.executableFile.components.contains("plugin-cache"), "\(result.executableFile.pathString)")
+                #expect(!result.compilerOutput.contains("warning:"), "\(result.compilerOutput)")
+                #expect(result.diagnosticsFile.suffix == ".dia", "\(result.diagnosticsFile.pathString)")
 
                 // Check the delegate callbacks.
-                XCTAssertEqual(delegate.commandLine, result.commandLine)
-                XCTAssertNotNil(delegate.environment)
-                XCTAssertEqual(delegate.compiledResult, result)
-                XCTAssertNil(delegate.cachedResult)
-                
+                #expect(delegate.commandLine == result.commandLine)
+                #expect(delegate.environment != nil)
+                #expect(delegate.compiledResult == result)
+                #expect(delegate.cachedResult == nil)
+
                 // Check that the diagnostics no longer have a warning.
                 let diaFileContents = try localFileSystem.readFileContents(result.diagnosticsFile)
                 let diagnosticsSet = try SerializedDiagnostics(bytes: diaFileContents)
-                XCTAssertEqual(diagnosticsSet.diagnostics.count, 0)
+                #expect(diagnosticsSet.diagnostics.count == 0)
 
                 // Check that the executable file exists.
-                XCTAssertTrue(localFileSystem.exists(result.executableFile), "\(result.executableFile.pathString)")
+                #expect(localFileSystem.exists(result.executableFile), "\(result.executableFile.pathString)")
 
                 // Check that the timestamp has changed (at least a mild indication that it was recompiled).
                 thirdExecModTime = try localFileSystem.getFileInfo(result.executableFile).modTime
-                XCTAssert(thirdExecModTime != firstExecModTime, "thirdExecModTime: \(thirdExecModTime), firstExecModTime: \(firstExecModTime)")
-                XCTAssert(thirdExecModTime != secondExecModTime, "thirdExecModTime: \(thirdExecModTime), secondExecModTime: \(secondExecModTime)")
+                #expect(thirdExecModTime != firstExecModTime, "thirdExecModTime: \(thirdExecModTime), firstExecModTime: \(firstExecModTime)")
+                #expect(thirdExecModTime != secondExecModTime, "thirdExecModTime: \(thirdExecModTime), secondExecModTime: \(secondExecModTime)")
             }
 
             // Now replace the plugin script source with a broken one again.
@@ -605,36 +616,36 @@ final class PluginInvocationTests: XCTestCase {
                 )
 
                 // This should again invoke the compiler but should fail.
-                XCTAssert(result.succeeded == false)
-                XCTAssert(result.cached == false)
-                XCTAssert(result.commandLine.contains(result.executableFile.pathString), "\(result.commandLine)")
-                XCTAssert(result.executableFile.components.contains("plugin-cache"), "\(result.executableFile.pathString)")
-                XCTAssert(result.compilerOutput.contains("error: 'nil' is incompatible with return type"), "\(result.compilerOutput)")
-                XCTAssert(result.diagnosticsFile.suffix == ".dia", "\(result.diagnosticsFile.pathString)")
+                #expect(result.succeeded == false)
+                #expect(result.cached == false)
+                #expect(result.commandLine.contains(result.executableFile.pathString), "\(result.commandLine)")
+                #expect(result.executableFile.components.contains("plugin-cache"), "\(result.executableFile.pathString)")
+                #expect(result.compilerOutput.contains("error: 'nil' is incompatible with return type"), "\(result.compilerOutput)")
+                #expect(result.diagnosticsFile.suffix == ".dia", "\(result.diagnosticsFile.pathString)")
 
                 // Check the delegate callbacks.
-                XCTAssertEqual(delegate.commandLine, result.commandLine)
-                XCTAssertNotNil(delegate.environment)
-                XCTAssertEqual(delegate.compiledResult, result)
-                XCTAssertNil(delegate.cachedResult)
-                
+                #expect(delegate.commandLine == result.commandLine)
+                #expect(delegate.environment != nil)
+                #expect(delegate.compiledResult == result)
+                #expect(delegate.cachedResult == nil)
+
                 // Check the diagnostics. We should have a different error than the original one.
                 let diaFileContents = try localFileSystem.readFileContents(result.diagnosticsFile)
                 let diagnosticsSet = try SerializedDiagnostics(bytes: diaFileContents)
-                XCTAssertEqual(diagnosticsSet.diagnostics.count, 1)
-                let errorDiagnostic = try XCTUnwrap(diagnosticsSet.diagnostics.first)
-                XCTAssertTrue(errorDiagnostic.text.hasPrefix("'nil' is incompatible with return type"), "\(errorDiagnostic)")
+                #expect(diagnosticsSet.diagnostics.count == 1)
+                let errorDiagnostic = try #require(diagnosticsSet.diagnostics.first)
+                #expect(errorDiagnostic.text.hasPrefix("'nil' is incompatible with return type"), "\(errorDiagnostic)")
 
                 // Check that the executable file no longer exists.
-                XCTAssertFalse(localFileSystem.exists(result.executableFile), "\(result.executableFile.pathString)")
+                #expect(!localFileSystem.exists(result.executableFile), "\(result.executableFile.pathString)")
             }
         }
     }
 
-    func testUnsupportedDependencyProduct() async throws {
-        // Only run the test if the environment in which we're running actually supports Swift concurrency (which the plugin APIs require).
-        try XCTSkipIf(!UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
-
+    @Test(
+        .disabled(if: !UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
+    )
+    func unsupportedDependencyProduct() async throws {        
         try await testWithTemporaryDirectory { tmpPath in
             // Create a sample package with a library product and a plugin.
             let packageDir = tmpPath.appending(components: "MyPackage")
@@ -712,27 +723,31 @@ final class PluginInvocationTests: XCTestCase {
                 packages: rootInput.packages,
                 observabilityScope: observability.topScope
             )
-            XCTAssert(rootManifests.count == 1, "\(rootManifests)")
+            #expect(rootManifests.count == 1, "\(rootManifests)")
 
             // Load the package graph.
-            await XCTAssertAsyncThrowsError(try await workspace.loadPackageGraph(
-                rootInput: rootInput,
-                observabilityScope: observability.topScope
-            )) { error in
+            await #expect {
+                try await workspace.loadPackageGraph(
+                    rootInput: rootInput,
+                    observabilityScope: observability.topScope
+                )
+            } throws: { error in
                 var diagnosed = false
                 if let realError = error as? PackageGraphError,
                    realError.description == "plugin 'MyPlugin' cannot depend on 'FooLib' of type 'library' from package 'foopackage'; this dependency is unsupported" {
                     diagnosed = true
                 }
-                XCTAssertTrue(diagnosed)
+                #expect(diagnosed)
             }
         }
     }
 
-    func testUnsupportedDependencyTarget() async throws {
-        // Only run the test if the environment in which we're running actually supports Swift concurrency (which the plugin APIs require).
-        try XCTSkipIf(!UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
-
+    @Test(
+        // .disabled(if: !UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
+        // .requiresConcurrencySupport
+        .foo
+    )
+    func unsupportedDependencyTarget() async throws {
         try await testWithTemporaryDirectory { tmpPath in
             // Create a sample package with a library target and a plugin.
             let packageDir = tmpPath.appending(components: "MyPackage")
@@ -791,27 +806,28 @@ final class PluginInvocationTests: XCTestCase {
                 packages: rootInput.packages,
                 observabilityScope: observability.topScope
             )
-            XCTAssert(rootManifests.count == 1, "\(rootManifests)")
+            #expect(rootManifests.count == 1, "\(rootManifests)")
 
             // Load the package graph.
-            await XCTAssertAsyncThrowsError(try await workspace.loadPackageGraph(
-                rootInput: rootInput,
-                observabilityScope: observability.topScope
-            )) { error in
+            await #expect {
+                try await workspace.loadPackageGraph(
+                   rootInput: rootInput,
+                    observabilityScope: observability.topScope
+            ) } throws: { error in
                 var diagnosed = false
                 if let realError = error as? PackageGraphError,
                    realError.description == "plugin 'MyPlugin' cannot depend on 'MyLibrary' of type 'library'; this dependency is unsupported" {
                     diagnosed = true
                 }
-                XCTAssertTrue(diagnosed)
+                #expect(diagnosed)
             }
         }
     }
 
-    func testPrebuildPluginShouldNotUseExecTarget() async throws {
-        // Only run the test if the environment in which we're running actually supports Swift concurrency (which the plugin APIs require).
-        try XCTSkipIf(!UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
-
+    @Test(
+        .requiresConcurrencySupport
+    )
+    func prebuildPluginShouldNotUseExecTarget() async throws {
         try await testWithTemporaryDirectory { tmpPath in
             // Create a sample package with a library target and a plugin.
             let packageDir = tmpPath.appending(components: "mypkg")
@@ -901,20 +917,20 @@ final class PluginInvocationTests: XCTestCase {
                 packages: rootInput.packages,
                 observabilityScope: observability.topScope
             )
-            XCTAssert(rootManifests.count == 1, "\(rootManifests)")
+            #expect(rootManifests.count == 1, "\(rootManifests)")
 
             // Load the package graph.
             let packageGraph = try await workspace.loadPackageGraph(
                 rootInput: rootInput,
                 observabilityScope: observability.topScope
             )
-            XCTAssertNoDiagnostics(observability.diagnostics)
-            XCTAssert(packageGraph.packages.count == 1, "\(packageGraph.packages)")
+            try requireNoDiagnostics(observability.diagnostics)
+            #expect(packageGraph.packages.count == 1, "\(packageGraph.packages)")
 
             // Find the build tool plugin.
-            let buildToolPlugin = try XCTUnwrap(packageGraph.packages.first?.modules.map(\.underlying).filter{ $0.name == "X" }.first as? PluginModule)
-            XCTAssertEqual(buildToolPlugin.name, "X")
-            XCTAssertEqual(buildToolPlugin.capability, .buildTool)
+            let buildToolPlugin = try #require(packageGraph.packages.first?.modules.map(\.underlying).filter{ $0.name == "X" }.first as? PluginModule)
+            #expect(buildToolPlugin.name == "X")
+            #expect(buildToolPlugin.capability == .buildTool)
 
             // Create a plugin script runner for the duration of the test.
             let pluginCacheDir = tmpPath.appending("plugin-cache")
@@ -950,10 +966,10 @@ final class PluginInvocationTests: XCTestCase {
         }
     }
 
-    func testScanImportsInPluginTargets() async throws {
-        // Only run the test if the environment in which we're running actually supports Swift concurrency (which the plugin APIs require).
-        try XCTSkipIf(!UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
-
+    @Test(
+        .requiresConcurrencySupport
+    )
+    func scanImportsInPluginTargets() async throws {
         try await testWithTemporaryDirectory { tmpPath in
             // Create a sample package with a library target and a plugin.
             let packageDir = tmpPath.appending(components: "MyPackage")
@@ -1062,7 +1078,7 @@ final class PluginInvocationTests: XCTestCase {
                       ) throws -> [Command] { }
                   }
                   """)
-            
+
             // Create a valid swift interface file that can be detected via `canImport()`.
             let fakeExtraModulesDir = tmpPath.appending("ExtraModules")
             try localFileSystem.createDirectory(fakeExtraModulesDir, recursive: true)
@@ -1071,7 +1087,7 @@ final class PluginInvocationTests: XCTestCase {
                   // swift-interface-format-version: 1.0
                   // swift-module-flags: -module-name ModuleFoundViaExtraSearchPaths
                   """)
-            
+
             /////////
             // Load a workspace from the package.
             let observability = ObservabilitySystem.makeForTesting()
@@ -1096,7 +1112,7 @@ final class PluginInvocationTests: XCTestCase {
                 packages: rootInput.packages,
                 observabilityScope: observability.topScope
             )
-            XCTAssert(rootManifests.count == 1, "\(rootManifests)")
+            #expect(rootManifests.count == 1, "\(rootManifests)")
 
             let graph = try await workspace.loadPackageGraph(
                 rootInput: rootInput,
@@ -1107,29 +1123,29 @@ final class PluginInvocationTests: XCTestCase {
             var count = 0
             for (pkg, entry) in dict {
                 if pkg.description == "mypackage" {
-                    XCTAssertNotNil(entry["XPlugin"])
+                    #expect(entry["XPlugin"] != nil)
                     let XPluginPossibleImports1 = ["PackagePlugin", "XcodeProjectPlugin"]
                     let XPluginPossibleImports2 = ["PackagePlugin", "XcodeProjectPlugin", "_SwiftConcurrencyShims"]
-                    XCTAssertTrue(entry["XPlugin"] == XPluginPossibleImports1 ||
-                                  entry["XPlugin"] == XPluginPossibleImports2)
+                    #expect(entry["XPlugin"] == XPluginPossibleImports1 ||
+                            entry["XPlugin"] == XPluginPossibleImports2)
 
                     let YPluginPossibleImports1 = ["PackagePlugin", "Foundation"]
                     let YPluginPossibleImports2 = ["PackagePlugin", "Foundation", "_SwiftConcurrencyShims"]
-                    XCTAssertTrue(entry["YPlugin"] == YPluginPossibleImports1 ||
-                                  entry["YPlugin"] == YPluginPossibleImports2)
+                    #expect(entry["YPlugin"] == YPluginPossibleImports1 ||
+                            entry["YPlugin"] == YPluginPossibleImports2)
                     count += 1
                 } else if pkg.description == "otherpackage" {
-                    XCTAssertNotNil(dict[pkg]?["QPlugin"])
+                    #expect(dict[pkg]?["QPlugin"] != nil)
 
                     let possibleImports1 = ["PackagePlugin", "XcodeProjectPlugin", "ModuleFoundViaExtraSearchPaths"]
                     let possibleImports2 = ["PackagePlugin", "XcodeProjectPlugin", "ModuleFoundViaExtraSearchPaths", "_SwiftConcurrencyShims"]
-                    XCTAssertTrue(entry["QPlugin"] == possibleImports1 ||
-                                  entry["QPlugin"] == possibleImports2)
+                    #expect(entry["QPlugin"] == possibleImports1 ||
+                            entry["QPlugin"] == possibleImports2)
                     count += 1
                 }
             }
 
-            XCTAssertEqual(count, 2)
+            #expect(count == 2)
         }
     }
 
@@ -1137,8 +1153,7 @@ final class PluginInvocationTests: XCTestCase {
         artifactSupportedTriples: [Triple],
         hostTriple: Triple
     ) async throws -> [ResolvedModule.ID: [BuildToolPluginInvocationResult]]  {
-        // Only run the test if the environment in which we're running actually supports Swift concurrency (which the plugin APIs require).
-        try XCTSkipIf(!UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
+        // Any test that call this required needs to support Swift concurrency (which the plugin APIs require).
 
         return try await testWithTemporaryDirectory { tmpPath in
             // Create a sample package with a library target and a plugin.
@@ -1242,22 +1257,22 @@ final class PluginInvocationTests: XCTestCase {
                 packages: rootInput.packages,
                 observabilityScope: observability.topScope
             )
-            XCTAssert(rootManifests.count == 1, "\(rootManifests)")
+            #expect(rootManifests.count == 1, "\(rootManifests)")
 
             // Load the package graph.
             let packageGraph = try await workspace.loadPackageGraph(
                 rootInput: rootInput,
                 observabilityScope: observability.topScope
             )
-            XCTAssertNoDiagnostics(observability.diagnostics)
+            try requireNoDiagnostics(observability.diagnostics)
 
             // Find the build tool plugin.
-            let buildToolPlugin = try XCTUnwrap(packageGraph.packages.first?.modules
+            let buildToolPlugin = try #require(packageGraph.packages.first?.modules
                 .map(\.underlying)
                 .filter { $0.name == "Foo" }
                 .first as? PluginModule)
-            XCTAssertEqual(buildToolPlugin.name, "Foo")
-            XCTAssertEqual(buildToolPlugin.capability, .buildTool)
+            #expect(buildToolPlugin.name == "Foo")
+            #expect(buildToolPlugin.capability == .buildTool)
 
             // Construct a toolchain with a made-up host/target triple
             let swiftSDK = try SwiftSDK.default
@@ -1297,47 +1312,52 @@ final class PluginInvocationTests: XCTestCase {
         }
     }
 
-    func testParseArtifactNotSupportedOnTargetPlatform() async throws {
+    @Test(
+        .requiresConcurrencySupport
+    )
+    func parseArtifactNotSupportedOnTargetPlatform() async throws {
         let hostTriple = try UserToolchain.default.targetTriple
         let artifactSupportedTriples = try [Triple("riscv64-apple-windows-android")]
 
         var checked = false
-        let result = try await checkParseArtifactsPlatformCompatibility(artifactSupportedTriples: artifactSupportedTriples, hostTriple: hostTriple)
+        let result = try await self.checkParseArtifactsPlatformCompatibility(artifactSupportedTriples: artifactSupportedTriples, hostTriple: hostTriple)
         if let pluginResult = result.first,
            let diag = pluginResult.value.first?.diagnostics,
            diag.description == "[[error]: Tool ‘LocalBinaryTool’ is not supported on the target platform]" {
             checked = true
         }
-        XCTAssertTrue(checked)
+        #expect(checked)
     }
 
-    func testParseArtifactsDoesNotCheckPlatformVersion() async throws {
-        #if !os(macOS)
-        throw XCTSkip("platform versions are only available if the host is macOS")
-        #else
+    @Test(
+        .disabled(if: !isMacOS(), "platform versions are only available if the host is macOS")
+    )
+    func parseArtifactsDoesNotCheckPlatformVersion() async throws {
         let hostTriple = try UserToolchain.default.targetTriple
         let artifactSupportedTriples = try [Triple("\(hostTriple.withoutVersion().tripleString)20.0")]
 
-        let result = try await checkParseArtifactsPlatformCompatibility(artifactSupportedTriples: artifactSupportedTriples, hostTriple: hostTriple)
+        let result = try await self.checkParseArtifactsPlatformCompatibility(artifactSupportedTriples: artifactSupportedTriples, hostTriple: hostTriple)
         result.forEach {
             $0.value.forEach {
-                XCTAssertTrue($0.succeeded, "plugin unexpectedly failed")
-                XCTAssertEqual($0.diagnostics.map { $0.message }, [], "plugin produced unexpected diagnostics")
+                #expect($0.succeeded, "plugin unexpectedly failed")
+                #expect($0.diagnostics.map { $0.message } == [])
             }
         }
-        #endif
     }
 
-    func testParseArtifactsConsidersAllSupportedTriples() async throws {
+    @Test(
+        .requiresConcurrencySupport
+    )
+    func parseArtifactsConsidersAllSupportedTriples() async throws {
         let hostTriple = try UserToolchain.default.targetTriple
         let artifactSupportedTriples = [hostTriple, try Triple("riscv64-apple-windows-android")]
 
-        let result = try await checkParseArtifactsPlatformCompatibility(artifactSupportedTriples: artifactSupportedTriples, hostTriple: hostTriple)
+        let result = try await self.checkParseArtifactsPlatformCompatibility(artifactSupportedTriples: artifactSupportedTriples, hostTriple: hostTriple)
         result.forEach {
             $0.value.forEach {
-                XCTAssertTrue($0.succeeded, "plugin unexpectedly failed")
-                XCTAssertEqual($0.diagnostics.map { $0.message }, [], "plugin produced unexpected diagnostics")
-                XCTAssertEqual($0.buildCommands.first?.configuration.executable.basename, "LocalBinaryTool\(hostTriple.tripleString).sh")
+                #expect($0.succeeded, "plugin unexpectedly failed")
+                #expect($0.diagnostics.map { $0.message } == [])
+                #expect($0.buildCommands.first?.configuration.executable.basename == "LocalBinaryTool\(hostTriple.tripleString).sh")
             }
         }
     }
@@ -1407,6 +1427,6 @@ extension BuildPlanResult {
         let targets = self.targetMap.filter {
             $0.module.name == target && $0.destination == destination
         }
-        XCTAssertEqual(targets.count, 1, file: file, line: line)
+        #expect(targets.count == 1)
     }    
 }

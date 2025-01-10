@@ -13,8 +13,8 @@ import Testing
 
 extension Trait where Self == Testing.ConditionTrait {
     public static var requiresConcurrencySupport: Self {
-        // disabled(if: !UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
+        // .disabled("dfeskipping because test environment doesn't support concurrency")
+        disabled(if: try !UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
         // .disabled(if: true, "skipping because test environment doesn't support concurrency")
-        .disabled("skipping because test environment doesn't support concurrency")
     }
 }
