@@ -21,15 +21,15 @@ import PackageLoading
 import SPMBuildCore
 import _InternalTestSupport
 @testable import XCBuildSupport
-import XCTest
+import Testing
 
-final class PIFBuilderTests: XCTestCase {
+struct PIFBuilderTests {
     let inputsDir = AbsolutePath(#file).parentDirectory.appending(components: "Inputs")
 
-    func testOrdering() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func ordering() throws {
         // Repeat multiple times to detect non-deterministic shuffling due to sets.
         for _ in 0 ..< 10 {
             let fs = InMemoryFileSystem(
@@ -87,36 +87,28 @@ final class PIFBuilderTests: XCTestCase {
             )
             let pif = try builder.construct()
 
-            XCTAssertNoDiagnostics(observability.diagnostics)
+            try requireNoDiagnostics(observability.diagnostics)
 
             let projectNames = pif.workspace.projects.map(\.name)
-            XCTAssertEqual(projectNames, ["A", "B", "Aggregate"])
+            #expect(projectNames == ["A", "B", "Aggregate"])
             let projectATargetNames = pif.workspace.projects[0].targets.map(\.name)
-            XCTAssertEqual(
-                projectATargetNames,
-                ["aexe_79CC9E117_PackageProduct", "alib_79D40CF5C_PackageProduct", "A2", "A3"]
-            )
+            #expect(projectATargetNames == ["aexe_79CC9E117_PackageProduct", "alib_79D40CF5C_PackageProduct", "A2", "A3"])
             let targetAExeDependencies = pif.workspace.projects[0].targets[0].dependencies
-            XCTAssertEqual(
-                targetAExeDependencies.map(\.targetGUID),
-                ["PACKAGE-PRODUCT:blib", "PACKAGE-TARGET:A2", "PACKAGE-TARGET:A3"]
-            )
+            #expect(targetAExeDependencies.map(\.targetGUID) == ["PACKAGE-PRODUCT:blib", "PACKAGE-TARGET:A2", "PACKAGE-TARGET:A3"])
             let projectBTargetNames = pif.workspace.projects[1].targets.map(\.name)
-            #if ENABLE_TARGET_BASED_DEPENDENCY_RESOLUTION
-            XCTAssertEqual(projectBTargetNames, ["blib_7AE74026D_PackageProduct", "B2"])
-            #else
-            XCTAssertEqual(
-                projectBTargetNames,
-                ["bexe_7ADFD1428_PackageProduct", "blib_7AE74026D_PackageProduct", "B2"]
-            )
-            #endif
+
+#if ENABLE_TARGET_BASED_DEPENDENCY_RESOLUTION
+            #expect(projectBTargetNames == ["blib_7AE74026D_PackageProduct", "B2"])
+#else
+            #expect(projectBTargetNames == ["bexe_7ADFD1428_PackageProduct", "blib_7AE74026D_PackageProduct", "B2"])
+#endif
         }
     }
 
-    func testProject() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func project() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/foo/main.swift",
@@ -173,231 +165,213 @@ final class PIFBuilderTests: XCTestCase {
         )
         let pif = try builder.construct()
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Foo") { project in
-                XCTAssertEqual(project.path.pathString, "/Foo")
-                XCTAssertEqual(project.projectDirectory.pathString, "/Foo")
-                XCTAssertEqual(project.name, "Foo")
-                XCTAssertEqual(project.developmentRegion, "fr")
+                #expect(project.path.pathString == "/Foo")
+                #expect(project.projectDirectory.pathString == "/Foo")
+                #expect(project.name == "Foo")
+                #expect(project.developmentRegion == "fr")
 
                 project.checkTarget("PACKAGE-PRODUCT:foo")
                 project.checkTarget("PACKAGE-PRODUCT:FooTests")
 
                 project.checkBuildConfiguration("Debug") { configuration in
-                    XCTAssertEqual(configuration.guid, "PACKAGE:/Foo::BUILDCONFIG_Debug")
-                    XCTAssertEqual(configuration.name, "Debug")
+                    #expect(configuration.guid == "PACKAGE:/Foo::BUILDCONFIG_Debug")
+                    #expect(configuration.name == "Debug")
 
                     configuration.checkAllBuildSettings { settings in
-                        XCTAssertEqual(settings[.CLANG_ENABLE_OBJC_ARC], "YES")
-                        XCTAssertEqual(settings[.CODE_SIGN_IDENTITY], "")
-                        XCTAssertEqual(settings[.CODE_SIGNING_REQUIRED], "NO")
-                        XCTAssertEqual(settings[.COPY_PHASE_STRIP], "NO")
-                        XCTAssertEqual(settings[.DEBUG_INFORMATION_FORMAT], "dwarf")
-                        XCTAssertEqual(settings[.DRIVERKIT_DEPLOYMENT_TARGET], "19.0")
-                        XCTAssertEqual(settings[.DYLIB_INSTALL_NAME_BASE], "@rpath")
-                        XCTAssertEqual(settings[.ENABLE_NS_ASSERTIONS], "YES")
-                        XCTAssertEqual(settings[.ENABLE_TESTABILITY], "YES")
-                        XCTAssertEqual(settings[.ENABLE_TESTING_SEARCH_PATHS], "YES")
-                        XCTAssertEqual(settings[.ENTITLEMENTS_REQUIRED], "NO")
-                        XCTAssertEqual(settings[.GCC_OPTIMIZATION_LEVEL], "0")
-                        XCTAssertEqual(
-                            settings[.GCC_PREPROCESSOR_DEFINITIONS],
-                            ["$(inherited)", "SWIFT_PACKAGE", "DEBUG=1"]
-                        )
-                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET], "12.0")
-                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst], "13.0")
-                        XCTAssertEqual(settings[.KEEP_PRIVATE_EXTERNS], "NO")
-                        XCTAssertEqual(settings[.MACOSX_DEPLOYMENT_TARGET], "10.13")
-                        XCTAssertEqual(settings[.ONLY_ACTIVE_ARCH], "YES")
-                        XCTAssertEqual(settings[.OTHER_LDRFLAGS], [])
-                        XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                        XCTAssertEqual(settings[.SDK_VARIANT], "auto")
-                        XCTAssertEqual(settings[.SDKROOT], "auto")
-                        XCTAssertEqual(settings[.SKIP_INSTALL], "YES")
-                        XCTAssertEqual(settings[.SUPPORTED_PLATFORMS], ["$(AVAILABLE_PLATFORMS)"])
-                        XCTAssertEqual(
-                            settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS],
-                            ["$(inherited)", "SWIFT_PACKAGE", "DEBUG"]
-                        )
-                        XCTAssertEqual(settings[.SWIFT_INSTALL_OBJC_HEADER], "NO")
-                        XCTAssertEqual(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME], "")
-                        XCTAssertEqual(settings[.SWIFT_OPTIMIZATION_LEVEL], "-Onone")
-                        XCTAssertEqual(settings[.TVOS_DEPLOYMENT_TARGET], "12.0")
-                        XCTAssertEqual(settings[.USE_HEADERMAP], "NO")
-                        XCTAssertEqual(settings[.WATCHOS_DEPLOYMENT_TARGET], "4.0")
-                        XCTAssertEqual(settings[.XROS_DEPLOYMENT_TARGET], "1.0")
+                        #expect(settings[.CLANG_ENABLE_OBJC_ARC] == "YES")
+                        #expect(settings[.CODE_SIGN_IDENTITY] == "")
+                        #expect(settings[.CODE_SIGNING_REQUIRED] == "NO")
+                        #expect(settings[.COPY_PHASE_STRIP] == "NO")
+                        #expect(settings[.DEBUG_INFORMATION_FORMAT] == "dwarf")
+                        #expect(settings[.DRIVERKIT_DEPLOYMENT_TARGET] == "19.0")
+                        #expect(settings[.DYLIB_INSTALL_NAME_BASE] == "@rpath")
+                        #expect(settings[.ENABLE_NS_ASSERTIONS] == "YES")
+                        #expect(settings[.ENABLE_TESTABILITY] == "YES")
+                        #expect(settings[.ENABLE_TESTING_SEARCH_PATHS] == "YES")
+                        #expect(settings[.ENTITLEMENTS_REQUIRED] == "NO")
+                        #expect(settings[.GCC_OPTIMIZATION_LEVEL] == "0")
+                        #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == ["$(inherited)", "SWIFT_PACKAGE", "DEBUG=1"])
+                        #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET] == "12.0")
+                        #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst] == "13.0")
+                        #expect(settings[.KEEP_PRIVATE_EXTERNS] == "NO")
+                        #expect(settings[.MACOSX_DEPLOYMENT_TARGET] == "10.13")
+                        #expect(settings[.ONLY_ACTIVE_ARCH] == "YES")
+                        #expect(settings[.OTHER_LDRFLAGS] == [])
+                        #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                        #expect(settings[.SDK_VARIANT] == "auto")
+                        #expect(settings[.SDKROOT] == "auto")
+                        #expect(settings[.SKIP_INSTALL] == "YES")
+                        #expect(settings[.SUPPORTED_PLATFORMS] == ["$(AVAILABLE_PLATFORMS)"])
+                        #expect(settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS] == ["$(inherited)", "SWIFT_PACKAGE", "DEBUG"])
+                        #expect(settings[.SWIFT_INSTALL_OBJC_HEADER] == "NO")
+                        #expect(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME] == "")
+                        #expect(settings[.SWIFT_OPTIMIZATION_LEVEL] == "-Onone")
+                        #expect(settings[.TVOS_DEPLOYMENT_TARGET] == "12.0")
+                        #expect(settings[.USE_HEADERMAP] == "NO")
+                        #expect(settings[.WATCHOS_DEPLOYMENT_TARGET] == "4.0")
+                        #expect(settings[.XROS_DEPLOYMENT_TARGET] == "1.0")
 
                         let frameworksSearchPaths = ["$(inherited)", "$(PLATFORM_DIR)/Developer/Library/Frameworks"]
                         for platform in [PIF.BuildSettings.Platform.macOS, .iOS, .tvOS] {
-                            XCTAssertEqual(settings[.FRAMEWORK_SEARCH_PATHS, for: platform], frameworksSearchPaths)
+                            #expect(settings[.FRAMEWORK_SEARCH_PATHS, for: platform] == frameworksSearchPaths)
                         }
 
                         for platform in PIF.BuildSettings.Platform.allCases {
-                            XCTAssertEqual(settings[.SPECIALIZATION_SDK_OPTIONS, for: platform], nil)
+                            #expect(settings[.SPECIALIZATION_SDK_OPTIONS, for: platform] == nil)
                         }
                     }
                 }
 
                 project.checkBuildConfiguration("Release") { configuration in
-                    XCTAssertEqual(configuration.guid, "PACKAGE:/Foo::BUILDCONFIG_Release")
-                    XCTAssertEqual(configuration.name, "Release")
+                    #expect(configuration.guid == "PACKAGE:/Foo::BUILDCONFIG_Release")
+                    #expect(configuration.name == "Release")
 
                     configuration.checkAllBuildSettings { settings in
-                        XCTAssertEqual(settings[.CLANG_ENABLE_OBJC_ARC], "YES")
-                        XCTAssertEqual(settings[.CODE_SIGN_IDENTITY], "")
-                        XCTAssertEqual(settings[.CODE_SIGNING_REQUIRED], "NO")
-                        XCTAssertEqual(settings[.COPY_PHASE_STRIP], "YES")
-                        XCTAssertEqual(settings[.DEBUG_INFORMATION_FORMAT], "dwarf-with-dsym")
-                        XCTAssertEqual(settings[.DRIVERKIT_DEPLOYMENT_TARGET], "19.0")
-                        XCTAssertEqual(settings[.DYLIB_INSTALL_NAME_BASE], "@rpath")
-                        XCTAssertEqual(settings[.ENABLE_TESTING_SEARCH_PATHS], "YES")
-                        XCTAssertEqual(settings[.ENTITLEMENTS_REQUIRED], "NO")
-                        XCTAssertEqual(settings[.GCC_OPTIMIZATION_LEVEL], "s")
-                        XCTAssertEqual(settings[.GCC_PREPROCESSOR_DEFINITIONS], ["$(inherited)", "SWIFT_PACKAGE"])
-                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET], "12.0")
-                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst], "13.0")
-                        XCTAssertEqual(settings[.KEEP_PRIVATE_EXTERNS], "NO")
-                        XCTAssertEqual(settings[.MACOSX_DEPLOYMENT_TARGET], "10.13")
-                        XCTAssertEqual(settings[.OTHER_LDRFLAGS], [])
-                        XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                        XCTAssertEqual(settings[.SDK_VARIANT], "auto")
-                        XCTAssertEqual(settings[.SDKROOT], "auto")
-                        XCTAssertEqual(settings[.SKIP_INSTALL], "YES")
-                        XCTAssertEqual(settings[.SUPPORTED_PLATFORMS], ["$(AVAILABLE_PLATFORMS)"])
-                        XCTAssertEqual(
-                            settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS],
-                            ["$(inherited)", "SWIFT_PACKAGE"]
-                        )
-                        XCTAssertEqual(settings[.SWIFT_INSTALL_OBJC_HEADER], "NO")
-                        XCTAssertEqual(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME], "")
-                        XCTAssertEqual(settings[.SWIFT_OPTIMIZATION_LEVEL], "-Owholemodule")
-                        XCTAssertEqual(settings[.TVOS_DEPLOYMENT_TARGET], "12.0")
-                        XCTAssertEqual(settings[.USE_HEADERMAP], "NO")
-                        XCTAssertEqual(settings[.WATCHOS_DEPLOYMENT_TARGET], "4.0")
-                        XCTAssertEqual(settings[.XROS_DEPLOYMENT_TARGET], "1.0")
+                        #expect(settings[.CLANG_ENABLE_OBJC_ARC] == "YES")
+                        #expect(settings[.CODE_SIGN_IDENTITY] == "")
+                        #expect(settings[.CODE_SIGNING_REQUIRED] == "NO")
+                        #expect(settings[.COPY_PHASE_STRIP] == "YES")
+                        #expect(settings[.DEBUG_INFORMATION_FORMAT] == "dwarf-with-dsym")
+                        #expect(settings[.DRIVERKIT_DEPLOYMENT_TARGET] == "19.0")
+                        #expect(settings[.DYLIB_INSTALL_NAME_BASE] == "@rpath")
+                        #expect(settings[.ENABLE_TESTING_SEARCH_PATHS] == "YES")
+                        #expect(settings[.ENTITLEMENTS_REQUIRED] == "NO")
+                        #expect(settings[.GCC_OPTIMIZATION_LEVEL] == "s")
+                        #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == ["$(inherited)", "SWIFT_PACKAGE"])
+                        #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET] == "12.0")
+                        #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst] == "13.0")
+                        #expect(settings[.KEEP_PRIVATE_EXTERNS] == "NO")
+                        #expect(settings[.MACOSX_DEPLOYMENT_TARGET] == "10.13")
+                        #expect(settings[.OTHER_LDRFLAGS] == [])
+                        #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                        #expect(settings[.SDK_VARIANT] == "auto")
+                        #expect(settings[.SDKROOT] == "auto")
+                        #expect(settings[.SKIP_INSTALL] == "YES")
+                        #expect(settings[.SUPPORTED_PLATFORMS] == ["$(AVAILABLE_PLATFORMS)"])
+                        #expect(settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS] == ["$(inherited)", "SWIFT_PACKAGE"])
+                        #expect(settings[.SWIFT_INSTALL_OBJC_HEADER] == "NO")
+                        #expect(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME] == "")
+                        #expect(settings[.SWIFT_OPTIMIZATION_LEVEL] == "-Owholemodule")
+                        #expect(settings[.TVOS_DEPLOYMENT_TARGET] == "12.0")
+                        #expect(settings[.USE_HEADERMAP] == "NO")
+                        #expect(settings[.WATCHOS_DEPLOYMENT_TARGET] == "4.0")
+                        #expect(settings[.XROS_DEPLOYMENT_TARGET] == "1.0")
 
                         let frameworksSearchPaths = ["$(inherited)", "$(PLATFORM_DIR)/Developer/Library/Frameworks"]
                         for platform in [PIF.BuildSettings.Platform.macOS, .iOS, .tvOS] {
-                            XCTAssertEqual(settings[.FRAMEWORK_SEARCH_PATHS, for: platform], frameworksSearchPaths)
+                            #expect(settings[.FRAMEWORK_SEARCH_PATHS, for: platform] == frameworksSearchPaths)
                         }
 
                         for platform in PIF.BuildSettings.Platform.allCases {
-                            XCTAssertEqual(settings[.SPECIALIZATION_SDK_OPTIONS, for: platform], nil)
+                            #expect(settings[.SPECIALIZATION_SDK_OPTIONS, for: platform] == nil)
                         }
                     }
                 }
             }
 
             try workspace.checkProject("PACKAGE:/Bar") { project in
-                XCTAssertEqual(project.path.pathString, "/Bar")
-                XCTAssertEqual(project.projectDirectory.pathString, "/Bar")
-                XCTAssertEqual(project.name, "Bar")
-                XCTAssertEqual(project.developmentRegion, "en")
+                #expect(project.path.pathString == "/Bar")
+                #expect(project.projectDirectory.pathString == "/Bar")
+                #expect(project.name == "Bar")
+                #expect(project.developmentRegion == "en")
 
                 project.checkTarget("PACKAGE-PRODUCT:BarLib")
 
                 project.checkBuildConfiguration("Debug") { configuration in
-                    XCTAssertEqual(configuration.guid, "PACKAGE:/Bar::BUILDCONFIG_Debug")
-                    XCTAssertEqual(configuration.name, "Debug")
+                    #expect(configuration.guid == "PACKAGE:/Bar::BUILDCONFIG_Debug")
+                    #expect(configuration.name == "Debug")
 
                     configuration.checkAllBuildSettings { settings in
-                        XCTAssertEqual(settings[.CLANG_ENABLE_OBJC_ARC], "YES")
-                        XCTAssertEqual(settings[.CODE_SIGN_IDENTITY], "")
-                        XCTAssertEqual(settings[.CODE_SIGNING_REQUIRED], "NO")
-                        XCTAssertEqual(settings[.COPY_PHASE_STRIP], "NO")
-                        XCTAssertEqual(settings[.DEBUG_INFORMATION_FORMAT], "dwarf")
-                        XCTAssertEqual(settings[.DRIVERKIT_DEPLOYMENT_TARGET], "19.0")
-                        XCTAssertEqual(settings[.DYLIB_INSTALL_NAME_BASE], "@rpath")
-                        XCTAssertEqual(settings[.ENABLE_NS_ASSERTIONS], "YES")
-                        XCTAssertEqual(settings[.ENABLE_TESTABILITY], "YES")
-                        XCTAssertEqual(settings[.ENABLE_TESTING_SEARCH_PATHS], "YES")
-                        XCTAssertEqual(settings[.ENTITLEMENTS_REQUIRED], "NO")
-                        XCTAssertEqual(settings[.GCC_OPTIMIZATION_LEVEL], "0")
-                        XCTAssertEqual(
-                            settings[.GCC_PREPROCESSOR_DEFINITIONS],
-                            ["$(inherited)", "SWIFT_PACKAGE", "DEBUG=1"]
-                        )
-                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET], "12.0")
-                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst], "13.0")
-                        XCTAssertEqual(settings[.KEEP_PRIVATE_EXTERNS], "NO")
-                        XCTAssertEqual(settings[.MACOSX_DEPLOYMENT_TARGET], "10.14")
-                        XCTAssertEqual(settings[.ONLY_ACTIVE_ARCH], "YES")
-                        XCTAssertEqual(settings[.OTHER_LDRFLAGS], [])
-                        XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                        XCTAssertEqual(settings[.SDK_VARIANT], "auto")
-                        XCTAssertEqual(settings[.SDKROOT], "auto")
-                        XCTAssertEqual(settings[.SKIP_INSTALL], "YES")
-                        XCTAssertEqual(settings[.SUPPORTED_PLATFORMS], ["$(AVAILABLE_PLATFORMS)"])
-                        XCTAssertEqual(
-                            settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS],
-                            ["$(inherited)", "SWIFT_PACKAGE", "DEBUG"]
-                        )
-                        XCTAssertEqual(settings[.SWIFT_INSTALL_OBJC_HEADER], "NO")
-                        XCTAssertEqual(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME], "")
-                        XCTAssertEqual(settings[.SWIFT_OPTIMIZATION_LEVEL], "-Onone")
-                        XCTAssertEqual(settings[.TVOS_DEPLOYMENT_TARGET], "12.0")
-                        XCTAssertEqual(settings[.USE_HEADERMAP], "NO")
-                        XCTAssertEqual(settings[.WATCHOS_DEPLOYMENT_TARGET], "6.0")
-                        XCTAssertEqual(settings[.XROS_DEPLOYMENT_TARGET], "1.0")
+                        #expect(settings[.CLANG_ENABLE_OBJC_ARC] == "YES")
+                        #expect(settings[.CODE_SIGN_IDENTITY] == "")
+                        #expect(settings[.CODE_SIGNING_REQUIRED] == "NO")
+                        #expect(settings[.COPY_PHASE_STRIP] == "NO")
+                        #expect(settings[.DEBUG_INFORMATION_FORMAT] == "dwarf")
+                        #expect(settings[.DRIVERKIT_DEPLOYMENT_TARGET] == "19.0")
+                        #expect(settings[.DYLIB_INSTALL_NAME_BASE] == "@rpath")
+                        #expect(settings[.ENABLE_NS_ASSERTIONS] == "YES")
+                        #expect(settings[.ENABLE_TESTABILITY] == "YES")
+                        #expect(settings[.ENABLE_TESTING_SEARCH_PATHS] == "YES")
+                        #expect(settings[.ENTITLEMENTS_REQUIRED] == "NO")
+                        #expect(settings[.GCC_OPTIMIZATION_LEVEL] == "0")
+                        #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == ["$(inherited)", "SWIFT_PACKAGE", "DEBUG=1"])
+                        #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET] == "12.0")
+                        #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst] == "13.0")
+                        #expect(settings[.KEEP_PRIVATE_EXTERNS] == "NO")
+                        #expect(settings[.MACOSX_DEPLOYMENT_TARGET] == "10.14")
+                        #expect(settings[.ONLY_ACTIVE_ARCH] == "YES")
+                        #expect(settings[.OTHER_LDRFLAGS] == [])
+                        #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                        #expect(settings[.SDK_VARIANT] == "auto")
+                        #expect(settings[.SDKROOT] == "auto")
+                        #expect(settings[.SKIP_INSTALL] == "YES")
+                        #expect(settings[.SUPPORTED_PLATFORMS] == ["$(AVAILABLE_PLATFORMS)"])
+                        #expect(settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS] == ["$(inherited)", "SWIFT_PACKAGE", "DEBUG"])
+                        #expect(settings[.SWIFT_INSTALL_OBJC_HEADER] == "NO")
+                        #expect(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME] == "")
+                        #expect(settings[.SWIFT_OPTIMIZATION_LEVEL] == "-Onone")
+                        #expect(settings[.TVOS_DEPLOYMENT_TARGET] == "12.0")
+                        #expect(settings[.USE_HEADERMAP] == "NO")
+                        #expect(settings[.WATCHOS_DEPLOYMENT_TARGET] == "6.0")
+                        #expect(settings[.XROS_DEPLOYMENT_TARGET] == "1.0")
 
                         let frameworksSearchPaths = ["$(inherited)", "$(PLATFORM_DIR)/Developer/Library/Frameworks"]
                         for platform in [PIF.BuildSettings.Platform.macOS, .iOS, .tvOS] {
-                            XCTAssertEqual(settings[.FRAMEWORK_SEARCH_PATHS, for: platform], frameworksSearchPaths)
+                            #expect(settings[.FRAMEWORK_SEARCH_PATHS, for: platform] == frameworksSearchPaths)
                         }
 
                         for platform in PIF.BuildSettings.Platform.allCases {
-                            XCTAssertEqual(settings[.SPECIALIZATION_SDK_OPTIONS, for: platform], nil)
+                            #expect(settings[.SPECIALIZATION_SDK_OPTIONS, for: platform] == nil)
                         }
                     }
                 }
 
                 project.checkBuildConfiguration("Release") { configuration in
-                    XCTAssertEqual(configuration.guid, "PACKAGE:/Bar::BUILDCONFIG_Release")
-                    XCTAssertEqual(configuration.name, "Release")
+                    #expect(configuration.guid == "PACKAGE:/Bar::BUILDCONFIG_Release")
+                    #expect(configuration.name == "Release")
 
                     configuration.checkAllBuildSettings { settings in
-                        XCTAssertEqual(settings[.CLANG_ENABLE_OBJC_ARC], "YES")
-                        XCTAssertEqual(settings[.CODE_SIGN_IDENTITY], "")
-                        XCTAssertEqual(settings[.CODE_SIGNING_REQUIRED], "NO")
-                        XCTAssertEqual(settings[.COPY_PHASE_STRIP], "YES")
-                        XCTAssertEqual(settings[.DEBUG_INFORMATION_FORMAT], "dwarf-with-dsym")
-                        XCTAssertEqual(settings[.DRIVERKIT_DEPLOYMENT_TARGET], "19.0")
-                        XCTAssertEqual(settings[.DYLIB_INSTALL_NAME_BASE], "@rpath")
-                        XCTAssertEqual(settings[.ENABLE_TESTING_SEARCH_PATHS], "YES")
-                        XCTAssertEqual(settings[.ENTITLEMENTS_REQUIRED], "NO")
-                        XCTAssertEqual(settings[.GCC_OPTIMIZATION_LEVEL], "s")
-                        XCTAssertEqual(settings[.GCC_PREPROCESSOR_DEFINITIONS], ["$(inherited)", "SWIFT_PACKAGE"])
-                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET], "12.0")
-                        XCTAssertEqual(settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst], "13.0")
-                        XCTAssertEqual(settings[.KEEP_PRIVATE_EXTERNS], "NO")
-                        XCTAssertEqual(settings[.MACOSX_DEPLOYMENT_TARGET], "10.14")
-                        XCTAssertEqual(settings[.OTHER_LDRFLAGS], [])
-                        XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                        XCTAssertEqual(settings[.SDK_VARIANT], "auto")
-                        XCTAssertEqual(settings[.SDKROOT], "auto")
-                        XCTAssertEqual(settings[.SKIP_INSTALL], "YES")
-                        XCTAssertEqual(settings[.SUPPORTED_PLATFORMS], ["$(AVAILABLE_PLATFORMS)"])
-                        XCTAssertEqual(
-                            settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS],
-                            ["$(inherited)", "SWIFT_PACKAGE"]
-                        )
-                        XCTAssertEqual(settings[.SWIFT_INSTALL_OBJC_HEADER], "NO")
-                        XCTAssertEqual(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME], "")
-                        XCTAssertEqual(settings[.SWIFT_OPTIMIZATION_LEVEL], "-Owholemodule")
-                        XCTAssertEqual(settings[.TVOS_DEPLOYMENT_TARGET], "12.0")
-                        XCTAssertEqual(settings[.USE_HEADERMAP], "NO")
-                        XCTAssertEqual(settings[.WATCHOS_DEPLOYMENT_TARGET], "6.0")
-                        XCTAssertEqual(settings[.XROS_DEPLOYMENT_TARGET], "1.0")
+                        #expect(settings[.CLANG_ENABLE_OBJC_ARC] == "YES")
+                        #expect(settings[.CODE_SIGN_IDENTITY] == "")
+                        #expect(settings[.CODE_SIGNING_REQUIRED] == "NO")
+                        #expect(settings[.COPY_PHASE_STRIP] == "YES")
+                        #expect(settings[.DEBUG_INFORMATION_FORMAT] == "dwarf-with-dsym")
+                        #expect(settings[.DRIVERKIT_DEPLOYMENT_TARGET] == "19.0")
+                        #expect(settings[.DYLIB_INSTALL_NAME_BASE] == "@rpath")
+                        #expect(settings[.ENABLE_TESTING_SEARCH_PATHS] == "YES")
+                        #expect(settings[.ENTITLEMENTS_REQUIRED] == "NO")
+                        #expect(settings[.GCC_OPTIMIZATION_LEVEL] == "s")
+                        #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == ["$(inherited)", "SWIFT_PACKAGE"])
+                        #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET] == "12.0")
+                        #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET, for: .macCatalyst] == "13.0")
+                        #expect(settings[.KEEP_PRIVATE_EXTERNS] == "NO")
+                        #expect(settings[.MACOSX_DEPLOYMENT_TARGET] == "10.14")
+                        #expect(settings[.OTHER_LDRFLAGS] == [])
+                        #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                        #expect(settings[.SDK_VARIANT] == "auto")
+                        #expect(settings[.SDKROOT] == "auto")
+                        #expect(settings[.SKIP_INSTALL] == "YES")
+                        #expect(settings[.SUPPORTED_PLATFORMS] == ["$(AVAILABLE_PLATFORMS)"])
+                        #expect(settings[.SWIFT_ACTIVE_COMPILATION_CONDITIONS] == ["$(inherited)", "SWIFT_PACKAGE"])
+                        #expect(settings[.SWIFT_INSTALL_OBJC_HEADER] == "NO")
+                        #expect(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME] == "")
+                        #expect(settings[.SWIFT_OPTIMIZATION_LEVEL] == "-Owholemodule")
+                        #expect(settings[.TVOS_DEPLOYMENT_TARGET] == "12.0")
+                        #expect(settings[.USE_HEADERMAP] == "NO")
+                        #expect(settings[.WATCHOS_DEPLOYMENT_TARGET] == "6.0")
+                        #expect(settings[.XROS_DEPLOYMENT_TARGET] == "1.0")
 
                         let frameworksSearchPaths = ["$(inherited)", "$(PLATFORM_DIR)/Developer/Library/Frameworks"]
                         for platform in [PIF.BuildSettings.Platform.macOS, .iOS, .tvOS] {
-                            XCTAssertEqual(settings[.FRAMEWORK_SEARCH_PATHS, for: platform], frameworksSearchPaths)
+                            #expect(settings[.FRAMEWORK_SEARCH_PATHS, for: platform] == frameworksSearchPaths)
                         }
 
                         for platform in PIF.BuildSettings.Platform.allCases {
-                            XCTAssertEqual(settings[.SPECIALIZATION_SDK_OPTIONS, for: platform], nil)
+                            #expect(settings[.SPECIALIZATION_SDK_OPTIONS, for: platform] == nil)
                         }
                     }
                 }
@@ -405,22 +379,22 @@ final class PIFBuilderTests: XCTestCase {
 
             try workspace.checkProject("AGGREGATE") { project in
                 project.checkAggregateTarget("ALL-EXCLUDING-TESTS") { target in
-                    XCTAssertEqual(target.name, PIFBuilder.allExcludingTestsTargetName)
-                    XCTAssertEqual(target.dependencies, ["PACKAGE-PRODUCT:foo"])
+                    #expect(target.name == PIFBuilder.allExcludingTestsTargetName)
+                    #expect(target.dependencies == ["PACKAGE-PRODUCT:foo"])
                 }
 
                 project.checkAggregateTarget("ALL-INCLUDING-TESTS") { target in
-                    XCTAssertEqual(target.name, PIFBuilder.allIncludingTestsTargetName)
-                    XCTAssertEqual(target.dependencies, ["PACKAGE-PRODUCT:foo", "PACKAGE-PRODUCT:FooTests"])
+                    #expect(target.name == PIFBuilder.allIncludingTestsTargetName)
+                    #expect(target.dependencies == ["PACKAGE-PRODUCT:foo", "PACKAGE-PRODUCT:FooTests"])
                 }
             }
         }
     }
 
-    func testExecutableProducts() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func executableProducts() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/foo/main.swift",
@@ -492,7 +466,7 @@ final class PIFBuilderTests: XCTestCase {
             pif = try builder.construct()
         }
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Foo") { project in
@@ -500,10 +474,10 @@ final class PIFBuilderTests: XCTestCase {
                 // Root Swift executable target
 
                 project.checkTarget("PACKAGE-PRODUCT:foo") { target in
-                    XCTAssertEqual(target.name, "foo_1EF26F7F_PackageProduct")
-                    XCTAssertEqual(target.productType, .executable)
-                    XCTAssertEqual(target.productName, "foo")
-                    XCTAssertEqual(target.dependencies, [
+                    #expect(target.name == "foo_1EF26F7F_PackageProduct")
+                    #expect(target.productType == .executable)
+                    #expect(target.productName == "foo")
+                    #expect(target.dependencies == [
                         "PACKAGE-PRODUCT:cfoo",
                         "PACKAGE-PRODUCT:bar",
                         "PACKAGE-PRODUCT:BarLib",
@@ -511,8 +485,8 @@ final class PIFBuilderTests: XCTestCase {
                         "PACKAGE-TARGET:FooLib",
                         "PACKAGE-TARGET:SystemLib",
                     ])
-                    XCTAssertEqual(target.sources, ["/Foo/Sources/foo/main.swift"])
-                    XCTAssertEqual(target.frameworks, [
+                    #expect(target.sources == ["/Foo/Sources/foo/main.swift"])
+                    #expect(target.frameworks == [
                         "PACKAGE-TARGET:FooLib",
                         "PACKAGE-PRODUCT:BarLib",
                         "PACKAGE-PRODUCT:cbar",
@@ -520,52 +494,40 @@ final class PIFBuilderTests: XCTestCase {
                     ])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:foo::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:foo::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.INSTALL_PATH], "/usr/local/bin")
-                            XCTAssertEqual(
-                                settings[.LD_RUNPATH_SEARCH_PATHS],
-                                ["$(inherited)", "@executable_path/../lib"]
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "foo")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "foo")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.SKIP_INSTALL], "NO")
-                            XCTAssertEqual(settings[.SWIFT_VERSION], "5")
-                            XCTAssertEqual(settings[.TARGET_NAME], "foo")
-                            XCTAssertEqual(
-                                settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
-                            )
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.INSTALL_PATH] == "/usr/local/bin")
+                            #expect(settings[.LD_RUNPATH_SEARCH_PATHS] == ["$(inherited)", "@executable_path/../lib"])
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "foo")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "foo")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SKIP_INSTALL] == "NO")
+                            #expect(settings[.SWIFT_VERSION] == "5")
+                            #expect(settings[.TARGET_NAME] == "foo")
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == ["$(inherited)", "/toolchain/lib/swift/macosx"])
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:foo::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:foo::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.INSTALL_PATH], "/usr/local/bin")
-                            XCTAssertEqual(
-                                settings[.LD_RUNPATH_SEARCH_PATHS],
-                                ["$(inherited)", "@executable_path/../lib"]
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "foo")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "foo")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.SKIP_INSTALL], "NO")
-                            XCTAssertEqual(settings[.SWIFT_VERSION], "5")
-                            XCTAssertEqual(settings[.TARGET_NAME], "foo")
-                            XCTAssertEqual(
-                                settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
-                            )
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.INSTALL_PATH] == "/usr/local/bin")
+                            #expect(settings[.LD_RUNPATH_SEARCH_PATHS] == ["$(inherited)", "@executable_path/../lib"])
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "foo")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "foo")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SKIP_INSTALL] == "NO")
+                            #expect(settings[.SWIFT_VERSION] == "5")
+                            #expect(settings[.TARGET_NAME] == "foo")
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == ["$(inherited)", "/toolchain/lib/swift/macosx"])
                         }
                     }
 
@@ -575,66 +537,48 @@ final class PIFBuilderTests: XCTestCase {
                 // Root Clang executable target
 
                 project.checkTarget("PACKAGE-PRODUCT:cfoo") { target in
-                    XCTAssertEqual(target.name, "cfoo_7BF40D05B_PackageProduct")
-                    XCTAssertEqual(target.productType, .executable)
-                    XCTAssertEqual(target.productName, "cfoo")
-                    XCTAssertEqual(target.dependencies, [])
-                    XCTAssertEqual(target.sources, ["/Foo/Sources/cfoo/main.c"])
-                    XCTAssertEqual(target.frameworks, [])
+                    #expect(target.name == "cfoo_7BF40D05B_PackageProduct")
+                    #expect(target.productType == .executable)
+                    #expect(target.productName == "cfoo")
+                    #expect(target.dependencies == [])
+                    #expect(target.sources == ["/Foo/Sources/cfoo/main.c"])
+                    #expect(target.frameworks == [])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:cfoo::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:cfoo::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(
-                                settings[.HEADER_SEARCH_PATHS],
-                                ["$(inherited)", "/Foo/Sources/cfoo/include"]
-                            )
-                            XCTAssertEqual(settings[.INSTALL_PATH], "/usr/local/bin")
-                            XCTAssertEqual(
-                                settings[.LD_RUNPATH_SEARCH_PATHS],
-                                ["$(inherited)", "@executable_path/../lib"]
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "cfoo")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "cfoo")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.SKIP_INSTALL], "NO")
-                            XCTAssertEqual(settings[.TARGET_NAME], "cfoo")
-                            XCTAssertEqual(
-                                settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
-                            )
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.HEADER_SEARCH_PATHS] == ["$(inherited)", "/Foo/Sources/cfoo/include"])
+                            #expect(settings[.INSTALL_PATH] == "/usr/local/bin")
+                            #expect(settings[.LD_RUNPATH_SEARCH_PATHS] == ["$(inherited)", "@executable_path/../lib"])
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "cfoo")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "cfoo")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SKIP_INSTALL] == "NO")
+                            #expect(settings[.TARGET_NAME] == "cfoo")
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == ["$(inherited)", "/toolchain/lib/swift/macosx"])
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:cfoo::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:cfoo::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(
-                                settings[.HEADER_SEARCH_PATHS],
-                                ["$(inherited)", "/Foo/Sources/cfoo/include"]
-                            )
-                            XCTAssertEqual(settings[.INSTALL_PATH], "/usr/local/bin")
-                            XCTAssertEqual(
-                                settings[.LD_RUNPATH_SEARCH_PATHS],
-                                ["$(inherited)", "@executable_path/../lib"]
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "cfoo")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "cfoo")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.SKIP_INSTALL], "NO")
-                            XCTAssertEqual(settings[.TARGET_NAME], "cfoo")
-                            XCTAssertEqual(
-                                settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
-                            )
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.HEADER_SEARCH_PATHS] == ["$(inherited)", "/Foo/Sources/cfoo/include"])
+                            #expect(settings[.INSTALL_PATH] == "/usr/local/bin")
+                            #expect(settings[.LD_RUNPATH_SEARCH_PATHS] == ["$(inherited)", "@executable_path/../lib"])
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "cfoo")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "cfoo")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SKIP_INSTALL] == "NO")
+                            #expect(settings[.TARGET_NAME] == "cfoo")
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == ["$(inherited)", "/toolchain/lib/swift/macosx"])
                         }
                     }
 
@@ -647,48 +591,42 @@ final class PIFBuilderTests: XCTestCase {
                 // Non-root Swift executable target
 
                 project.checkTarget("PACKAGE-PRODUCT:bar") { target in
-                    XCTAssertEqual(target.name, "bar_1ECDA8F8_PackageProduct")
-                    XCTAssertEqual(target.productType, .executable)
-                    XCTAssertEqual(target.productName, "bar")
-                    XCTAssertEqual(target.dependencies, ["PACKAGE-TARGET:BarLib"])
-                    XCTAssertEqual(target.sources, ["/Bar/Sources/bar/main.swift"])
-                    XCTAssertEqual(target.frameworks, ["PACKAGE-TARGET:BarLib"])
+                    #expect(target.name == "bar_1ECDA8F8_PackageProduct")
+                    #expect(target.productType == .executable)
+                    #expect(target.productName == "bar")
+                    #expect(target.dependencies == ["PACKAGE-TARGET:BarLib"])
+                    #expect(target.sources == ["/Bar/Sources/bar/main.swift"])
+                    #expect(target.frameworks == ["PACKAGE-TARGET:BarLib"])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:bar::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:bar::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "bar")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "bar")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.SWIFT_VERSION], "4.2")
-                            XCTAssertEqual(settings[.TARGET_NAME], "bar")
-                            XCTAssertEqual(
-                                settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
-                            )
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "bar")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "bar")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SWIFT_VERSION] == "4.2")
+                            #expect(settings[.TARGET_NAME] == "bar")
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == ["$(inherited)", "/toolchain/lib/swift/macosx"])
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:bar::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:bar::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "bar")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "bar")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.SWIFT_VERSION], "4.2")
-                            XCTAssertEqual(settings[.TARGET_NAME], "bar")
-                            XCTAssertEqual(
-                                settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
-                            )
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "bar")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "bar")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SWIFT_VERSION] == "4.2")
+                            #expect(settings[.TARGET_NAME] == "bar")
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == ["$(inherited)", "/toolchain/lib/swift/macosx"])
                         }
                     }
 
@@ -698,58 +636,46 @@ final class PIFBuilderTests: XCTestCase {
                 // Non-root Clang executable target
 
                 project.checkTarget("PACKAGE-PRODUCT:cbar") { target in
-                    XCTAssertEqual(target.name, "cbar_7BEFB595C_PackageProduct")
-                    XCTAssertEqual(target.productType, .executable)
-                    XCTAssertEqual(target.productName, "cbar")
-                    XCTAssertEqual(target.dependencies, [])
-                    XCTAssertEqual(target.sources, ["/Bar/Sources/cbar/main.c"])
-                    XCTAssertEqual(target.frameworks, [])
+                    #expect(target.name == "cbar_7BEFB595C_PackageProduct")
+                    #expect(target.productType == .executable)
+                    #expect(target.productName == "cbar")
+                    #expect(target.dependencies == [])
+                    #expect(target.sources == ["/Bar/Sources/cbar/main.c"])
+                    #expect(target.frameworks == [])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:cbar::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:cbar::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_CXX_LANGUAGE_STANDARD], "c++14")
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GCC_C_LANGUAGE_STANDARD], "c11")
-                            XCTAssertEqual(
-                                settings[.HEADER_SEARCH_PATHS],
-                                ["$(inherited)", "/Bar/Sources/cbar/include"]
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "cbar")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "cbar")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "cbar")
-                            XCTAssertEqual(
-                                settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
-                            )
+                            #expect(settings[.CLANG_CXX_LANGUAGE_STANDARD] == "c++14")
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GCC_C_LANGUAGE_STANDARD] == "c11")
+                            #expect(settings[.HEADER_SEARCH_PATHS] == ["$(inherited)", "/Bar/Sources/cbar/include"])
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "cbar")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "cbar")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "cbar")
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == ["$(inherited)", "/toolchain/lib/swift/macosx"])
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:cbar::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:cbar::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_CXX_LANGUAGE_STANDARD], "c++14")
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GCC_C_LANGUAGE_STANDARD], "c11")
-                            XCTAssertEqual(
-                                settings[.HEADER_SEARCH_PATHS],
-                                ["$(inherited)", "/Bar/Sources/cbar/include"]
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "cbar")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "cbar")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "cbar")
-                            XCTAssertEqual(
-                                settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
-                            )
+                            #expect(settings[.CLANG_CXX_LANGUAGE_STANDARD] == "c++14")
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GCC_C_LANGUAGE_STANDARD] == "c11")
+                            #expect(settings[.HEADER_SEARCH_PATHS] == ["$(inherited)", "/Bar/Sources/cbar/include"])
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "cbar")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "cbar")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "cbar")
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == ["$(inherited)", "/toolchain/lib/swift/macosx"])
                         }
                     }
 
@@ -759,10 +685,10 @@ final class PIFBuilderTests: XCTestCase {
         }
     }
 
-    func testTestProducts() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func testProducts() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/FooTests/FooTests.swift",
@@ -838,119 +764,89 @@ final class PIFBuilderTests: XCTestCase {
             pif = try builder.construct()
         }
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Foo") { project in
                 project.checkTarget("PACKAGE-PRODUCT:FooTests") { target in
-                    XCTAssertEqual(target.name, "FooTests_-5E24708DC81AF5C1_PackageProduct")
-                    XCTAssertEqual(target.productType, .unitTest)
-                    XCTAssertEqual(target.productName, "FooTests")
-                    XCTAssertEqual(target.dependencies, [
+                    #expect(target.name == "FooTests_-5E24708DC81AF5C1_PackageProduct")
+                    #expect(target.productType == .unitTest)
+                    #expect(target.productName == "FooTests")
+                    #expect(target.dependencies == [
                         "PACKAGE-PRODUCT:foo",
                         "PACKAGE-PRODUCT:bar",
                         "PACKAGE-PRODUCT:BarLib",
                         "PACKAGE-TARGET:FooLib",
                         "PACKAGE-TARGET:SystemLib",
                     ])
-                    XCTAssertEqual(target.sources, ["/Foo/Sources/FooTests/FooTests.swift"])
-                    XCTAssertEqual(target.frameworks, [
+                    #expect(target.sources == ["/Foo/Sources/FooTests/FooTests.swift"])
+                    #expect(target.frameworks == [
                         "PACKAGE-PRODUCT:bar",
                         "PACKAGE-TARGET:FooLib",
                         "PACKAGE-PRODUCT:BarLib",
                     ])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:FooTests::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:FooTests::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GENERATE_INFOPLIST_FILE], "YES")
-                            XCTAssertEqual(settings[.LD_RUNPATH_SEARCH_PATHS], [
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GENERATE_INFOPLIST_FILE] == "YES")
+                            #expect(settings[.LD_RUNPATH_SEARCH_PATHS] == [
                                 "$(inherited)",
                                 "@loader_path/Frameworks",
                                 "@loader_path/../Frameworks",
                             ])
-                            XCTAssertEqual(settings[.LIBRARY_SEARCH_PATHS], [
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == [
                                 "$(inherited)",
                                 "/toolchain/lib/swift/macosx",
                             ])
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "FooTests")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "FooTests")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.SWIFT_VERSION], "5")
-                            XCTAssertEqual(settings[.TARGET_NAME], "FooTests")
-                            XCTAssertEqual(
-                                settings[.WATCHOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .watchOS)
-                                    .versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.IPHONEOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .iOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.TVOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .tvOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.MACOSX_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .macOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.XROS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .visionOS)
-                                    .versionString
-                            )
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "FooTests")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "FooTests")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SWIFT_VERSION] == "5")
+                            #expect(settings[.TARGET_NAME] == "FooTests")
+                            #expect(settings[.WATCHOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .watchOS)
+                                .versionString)
+                            #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .iOS).versionString)
+                            #expect(settings[.TVOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .tvOS).versionString)
+                            #expect(settings[.MACOSX_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .macOS).versionString)
+                            #expect(settings[.XROS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .visionOS)
+                                .versionString)
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:FooTests::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:FooTests::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GENERATE_INFOPLIST_FILE], "YES")
-                            XCTAssertEqual(settings[.LD_RUNPATH_SEARCH_PATHS], [
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GENERATE_INFOPLIST_FILE] == "YES")
+                            #expect(settings[.LD_RUNPATH_SEARCH_PATHS] == [
                                 "$(inherited)",
                                 "@loader_path/Frameworks",
                                 "@loader_path/../Frameworks",
                             ])
-                            XCTAssertEqual(settings[.LIBRARY_SEARCH_PATHS], [
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == [
                                 "$(inherited)",
                                 "/toolchain/lib/swift/macosx",
                             ])
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "FooTests")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "FooTests")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.SWIFT_VERSION], "5")
-                            XCTAssertEqual(settings[.TARGET_NAME], "FooTests")
-                            XCTAssertEqual(
-                                settings[.WATCHOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .watchOS)
-                                    .versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.IPHONEOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .iOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.TVOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .tvOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.MACOSX_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .macOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.XROS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .visionOS)
-                                    .versionString
-                            )
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "FooTests")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "FooTests")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SWIFT_VERSION] == "5")
+                            #expect(settings[.TARGET_NAME] == "FooTests")
+                            #expect(settings[.WATCHOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .watchOS)
+                                .versionString)
+                            #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .iOS).versionString)
+                            #expect(settings[.TVOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .tvOS).versionString)
+                            #expect(settings[.MACOSX_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .macOS).versionString)
+                            #expect(settings[.XROS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .visionOS)
+                                .versionString)
                         }
                     }
 
@@ -958,110 +854,80 @@ final class PIFBuilderTests: XCTestCase {
                 }
 
                 project.checkTarget("PACKAGE-PRODUCT:CFooTests") { target in
-                    XCTAssertEqual(target.name, "CFooTests_A328606A9BCFA83_PackageProduct")
-                    XCTAssertEqual(target.productType, .unitTest)
-                    XCTAssertEqual(target.productName, "CFooTests")
-                    XCTAssertEqual(target.dependencies, [])
-                    XCTAssertEqual(target.sources, ["/Foo/Sources/CFooTests/CFooTests.m"])
-                    XCTAssertEqual(target.frameworks, [])
+                    #expect(target.name == "CFooTests_A328606A9BCFA83_PackageProduct")
+                    #expect(target.productType == .unitTest)
+                    #expect(target.productName == "CFooTests")
+                    #expect(target.dependencies == [])
+                    #expect(target.sources == ["/Foo/Sources/CFooTests/CFooTests.m"])
+                    #expect(target.frameworks == [])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:CFooTests::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:CFooTests::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GENERATE_INFOPLIST_FILE], "YES")
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], [
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GENERATE_INFOPLIST_FILE] == "YES")
+                            #expect(settings[.HEADER_SEARCH_PATHS] == [
                                 "$(inherited)",
                                 "/Foo/Sources/CFooTests/include",
                             ])
-                            XCTAssertEqual(settings[.LD_RUNPATH_SEARCH_PATHS], [
+                            #expect(settings[.LD_RUNPATH_SEARCH_PATHS] == [
                                 "$(inherited)",
                                 "@loader_path/Frameworks",
                                 "@loader_path/../Frameworks",
                             ])
-                            XCTAssertEqual(settings[.LIBRARY_SEARCH_PATHS], [
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == [
                                 "$(inherited)",
                                 "/toolchain/lib/swift/macosx",
                             ])
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "CFooTests")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "CFooTests")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "CFooTests")
-                            XCTAssertEqual(
-                                settings[.WATCHOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .watchOS)
-                                    .versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.IPHONEOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .iOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.TVOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .tvOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.MACOSX_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .macOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.XROS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .visionOS)
-                                    .versionString
-                            )
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "CFooTests")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "CFooTests")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "CFooTests")
+                            #expect(settings[.WATCHOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .watchOS)
+                                .versionString)
+                            #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .iOS).versionString)
+                            #expect(settings[.TVOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .tvOS).versionString)
+                            #expect(settings[.MACOSX_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .macOS).versionString)
+                            #expect(settings[.XROS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .visionOS)
+                                .versionString)
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:CFooTests::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:CFooTests::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GENERATE_INFOPLIST_FILE], "YES")
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], [
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GENERATE_INFOPLIST_FILE] == "YES")
+                            #expect(settings[.HEADER_SEARCH_PATHS] == [
                                 "$(inherited)",
                                 "/Foo/Sources/CFooTests/include",
                             ])
-                            XCTAssertEqual(settings[.LD_RUNPATH_SEARCH_PATHS], [
+                            #expect(settings[.LD_RUNPATH_SEARCH_PATHS] == [
                                 "$(inherited)",
                                 "@loader_path/Frameworks",
                                 "@loader_path/../Frameworks",
                             ])
-                            XCTAssertEqual(settings[.LIBRARY_SEARCH_PATHS], [
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == [
                                 "$(inherited)",
                                 "/toolchain/lib/swift/macosx",
                             ])
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "CFooTests")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "CFooTests")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "CFooTests")
-                            XCTAssertEqual(
-                                settings[.WATCHOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .watchOS)
-                                    .versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.IPHONEOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .iOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.TVOS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .tvOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.MACOSX_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .macOS).versionString
-                            )
-                            XCTAssertEqual(
-                                settings[.XROS_DEPLOYMENT_TARGET],
-                                MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .visionOS)
-                                    .versionString
-                            )
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "CFooTests")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "CFooTests")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "CFooTests")
+                            #expect(settings[.WATCHOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .watchOS)
+                                .versionString)
+                            #expect(settings[.IPHONEOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .iOS).versionString)
+                            #expect(settings[.TVOS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .tvOS).versionString)
+                            #expect(settings[.MACOSX_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .macOS).versionString)
+                            #expect(settings[.XROS_DEPLOYMENT_TARGET] == MinimumDeploymentTarget.computeXCTestMinimumDeploymentTarget(for: .visionOS)
+                                .versionString)
                         }
                     }
 
@@ -1076,10 +942,10 @@ final class PIFBuilderTests: XCTestCase {
         }
     }
 
-    func testLibraryProducts() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func libraryProducts() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/FooLib1/lib.swift",
@@ -1141,39 +1007,39 @@ final class PIFBuilderTests: XCTestCase {
             pif = try builder.construct()
         }
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Foo") { project in
                 project.checkTarget("PACKAGE-PRODUCT:FooLib1") { target in
-                    XCTAssertEqual(target.name, "FooLib1_32B0F01AD0DD0FF3_PackageProduct")
-                    XCTAssertEqual(target.productType, .packageProduct)
-                    XCTAssertEqual(target.productName, "libFooLib1.a")
-                    XCTAssertEqual(target.dependencies, [
+                    #expect(target.name == "FooLib1_32B0F01AD0DD0FF3_PackageProduct")
+                    #expect(target.productType == .packageProduct)
+                    #expect(target.productName == "libFooLib1.a")
+                    #expect(target.dependencies == [
                         "PACKAGE-TARGET:FooLib1",
                         "PACKAGE-TARGET:FooLib2",
                         "PACKAGE-PRODUCT:BarLib",
                     ])
-                    XCTAssertEqual(target.sources, [])
-                    XCTAssertEqual(target.frameworks, [
+                    #expect(target.sources == [])
+                    #expect(target.frameworks == [
                         "PACKAGE-TARGET:FooLib1",
                         "PACKAGE-TARGET:FooLib2",
                         "PACKAGE-PRODUCT:BarLib",
                     ])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:FooLib1::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:FooLib1::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.USES_SWIFTPM_UNSAFE_FLAGS], "NO")
+                            #expect(settings[.USES_SWIFTPM_UNSAFE_FLAGS] == "NO")
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:FooLib1::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:FooLib1::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.USES_SWIFTPM_UNSAFE_FLAGS], "NO")
+                            #expect(settings[.USES_SWIFTPM_UNSAFE_FLAGS] == "NO")
                         }
                     }
 
@@ -1183,34 +1049,34 @@ final class PIFBuilderTests: XCTestCase {
                 }
 
                 project.checkTarget("PACKAGE-PRODUCT:FooLib2") { target in
-                    XCTAssertEqual(target.name, "FooLib2_32B0F01AD0DD1074_PackageProduct")
-                    XCTAssertEqual(target.productType, .packageProduct)
-                    XCTAssertEqual(target.productName, "libFooLib2.a")
-                    XCTAssertEqual(target.dependencies, [
+                    #expect(target.name == "FooLib2_32B0F01AD0DD1074_PackageProduct")
+                    #expect(target.productType == .packageProduct)
+                    #expect(target.productName == "libFooLib2.a")
+                    #expect(target.dependencies == [
                         "PACKAGE-TARGET:FooLib2",
                         "PACKAGE-PRODUCT:BarLib",
                     ])
-                    XCTAssertEqual(target.sources, [])
-                    XCTAssertEqual(target.frameworks, [
+                    #expect(target.sources == [])
+                    #expect(target.frameworks == [
                         "PACKAGE-TARGET:FooLib2",
                         "PACKAGE-PRODUCT:BarLib",
                     ])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:FooLib2::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:FooLib2::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.USES_SWIFTPM_UNSAFE_FLAGS], "NO")
-                            XCTAssertEqual(settings[.APPLICATION_EXTENSION_API_ONLY], "YES")
+                            #expect(settings[.USES_SWIFTPM_UNSAFE_FLAGS] == "NO")
+                            #expect(settings[.APPLICATION_EXTENSION_API_ONLY] == "YES")
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:FooLib2::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:FooLib2::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.USES_SWIFTPM_UNSAFE_FLAGS], "NO")
-                            XCTAssertEqual(settings[.APPLICATION_EXTENSION_API_ONLY], "YES")
+                            #expect(settings[.USES_SWIFTPM_UNSAFE_FLAGS] == "NO")
+                            #expect(settings[.APPLICATION_EXTENSION_API_ONLY] == "YES")
                         }
                     }
 
@@ -1220,64 +1086,58 @@ final class PIFBuilderTests: XCTestCase {
 
             try workspace.checkProject("PACKAGE:/Bar") { project in
                 project.checkTarget("PACKAGE-PRODUCT:BarLib") { target in
-                    XCTAssertEqual(target.name, "BarLib_175D063FAE17B2_PackageProduct")
-                    XCTAssertEqual(target.productType, .framework)
-                    XCTAssertEqual(target.productName, "BarLib.framework")
-                    XCTAssertEqual(target.dependencies, ["PACKAGE-TARGET:BarLib"])
-                    XCTAssertEqual(target.sources, [])
-                    XCTAssertEqual(target.frameworks, ["PACKAGE-TARGET:BarLib"])
+                    #expect(target.name == "BarLib_175D063FAE17B2_PackageProduct")
+                    #expect(target.productType == .framework)
+                    #expect(target.productName == "BarLib.framework")
+                    #expect(target.dependencies == ["PACKAGE-TARGET:BarLib"])
+                    #expect(target.sources == [])
+                    #expect(target.frameworks == ["PACKAGE-TARGET:BarLib"])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:BarLib::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:BarLib::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.USES_SWIFTPM_UNSAFE_FLAGS], "NO")
-                            XCTAssertEqual(settings[.APPLICATION_EXTENSION_API_ONLY], "YES")
-                            XCTAssertEqual(settings[.BUILT_PRODUCTS_DIR], "$(BUILT_PRODUCTS_DIR)/PackageFrameworks")
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.CURRENT_PROJECT_VERSION], "1")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.EXECUTABLE_PREFIX], "lib")
-                            XCTAssertEqual(settings[.GENERATE_INFOPLIST_FILE], "YES")
-                            XCTAssertEqual(settings[.INSTALL_PATH], "/usr/local/lib")
-                            XCTAssertEqual(settings[.MARKETING_VERSION], "1.0")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "BarLib")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "BarLib")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.SKIP_INSTALL], "NO")
-                            XCTAssertEqual(settings[.TARGET_BUILD_DIR], "$(TARGET_BUILD_DIR)/PackageFrameworks")
-                            XCTAssertEqual(settings[.TARGET_NAME], "BarLib")
-                            XCTAssertEqual(
-                                settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
-                            )
+                            #expect(settings[.USES_SWIFTPM_UNSAFE_FLAGS] == "NO")
+                            #expect(settings[.APPLICATION_EXTENSION_API_ONLY] == "YES")
+                            #expect(settings[.BUILT_PRODUCTS_DIR] == "$(BUILT_PRODUCTS_DIR)/PackageFrameworks")
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.CURRENT_PROJECT_VERSION] == "1")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.EXECUTABLE_PREFIX] == "lib")
+                            #expect(settings[.GENERATE_INFOPLIST_FILE] == "YES")
+                            #expect(settings[.INSTALL_PATH] == "/usr/local/lib")
+                            #expect(settings[.MARKETING_VERSION] == "1.0")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "BarLib")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "BarLib")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SKIP_INSTALL] == "NO")
+                            #expect(settings[.TARGET_BUILD_DIR] == "$(TARGET_BUILD_DIR)/PackageFrameworks")
+                            #expect(settings[.TARGET_NAME] == "BarLib")
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == ["$(inherited)", "/toolchain/lib/swift/macosx"])
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:BarLib::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:BarLib::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.APPLICATION_EXTENSION_API_ONLY], "YES")
-                            XCTAssertEqual(settings[.BUILT_PRODUCTS_DIR], "$(BUILT_PRODUCTS_DIR)/PackageFrameworks")
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.CURRENT_PROJECT_VERSION], "1")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.EXECUTABLE_PREFIX], "lib")
-                            XCTAssertEqual(settings[.GENERATE_INFOPLIST_FILE], "YES")
-                            XCTAssertEqual(settings[.INSTALL_PATH], "/usr/local/lib")
-                            XCTAssertEqual(settings[.MARKETING_VERSION], "1.0")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "BarLib")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "BarLib")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.SKIP_INSTALL], "NO")
-                            XCTAssertEqual(settings[.TARGET_BUILD_DIR], "$(TARGET_BUILD_DIR)/PackageFrameworks")
-                            XCTAssertEqual(settings[.TARGET_NAME], "BarLib")
-                            XCTAssertEqual(settings[.USES_SWIFTPM_UNSAFE_FLAGS], "NO")
-                            XCTAssertEqual(
-                                settings[.LIBRARY_SEARCH_PATHS],
-                                ["$(inherited)", "/toolchain/lib/swift/macosx"]
-                            )
+                            #expect(settings[.APPLICATION_EXTENSION_API_ONLY] == "YES")
+                            #expect(settings[.BUILT_PRODUCTS_DIR] == "$(BUILT_PRODUCTS_DIR)/PackageFrameworks")
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.CURRENT_PROJECT_VERSION] == "1")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.EXECUTABLE_PREFIX] == "lib")
+                            #expect(settings[.GENERATE_INFOPLIST_FILE] == "YES")
+                            #expect(settings[.INSTALL_PATH] == "/usr/local/lib")
+                            #expect(settings[.MARKETING_VERSION] == "1.0")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "BarLib")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "BarLib")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SKIP_INSTALL] == "NO")
+                            #expect(settings[.TARGET_BUILD_DIR] == "$(TARGET_BUILD_DIR)/PackageFrameworks")
+                            #expect(settings[.TARGET_NAME] == "BarLib")
+                            #expect(settings[.USES_SWIFTPM_UNSAFE_FLAGS] == "NO")
+                            #expect(settings[.LIBRARY_SEARCH_PATHS] == ["$(inherited)", "/toolchain/lib/swift/macosx"])
                         }
                     }
 
@@ -1287,10 +1147,10 @@ final class PIFBuilderTests: XCTestCase {
         }
     }
 
-    func testLibraryTargets() async throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func libraryTargets() async throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/FooLib1/lib.swift",
@@ -1348,182 +1208,155 @@ final class PIFBuilderTests: XCTestCase {
             pif = try builder.construct()
         }
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Foo") { project in
                 project.checkTarget("PACKAGE-TARGET:FooLib1") { target in
-                    XCTAssertEqual(target.name, "FooLib1")
-                    XCTAssertEqual(target.productType, .objectFile)
-                    XCTAssertEqual(target.productName, "FooLib1_Module.o")
-                    XCTAssertEqual(target.dependencies, [
+                    #expect(target.name == "FooLib1")
+                    #expect(target.productType == .objectFile)
+                    #expect(target.productName == "FooLib1_Module.o")
+                    #expect(target.dependencies == [
                         "PACKAGE-TARGET:FooLib2",
                         "PACKAGE-TARGET:SystemLib",
                         "PACKAGE-PRODUCT:BarLib",
                     ])
-                    XCTAssertEqual(target.sources, ["/Foo/Sources/FooLib1/lib.swift"])
-                    XCTAssertEqual(target.frameworks, [])
+                    #expect(target.sources == ["/Foo/Sources/FooLib1/lib.swift"])
+                    #expect(target.frameworks == [])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:FooLib1::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-TARGET:FooLib1::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS], "NO")
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GENERATE_MASTER_OBJECT_FILE], "NO")
-                            XCTAssertEqual(settings[.MACH_O_TYPE], "mh_object")
-                            XCTAssertEqual(settings[.MODULEMAP_FILE_CONTENTS], """
+                            #expect(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS] == "NO")
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GENERATE_MASTER_OBJECT_FILE] == "NO")
+                            #expect(settings[.MACH_O_TYPE] == "mh_object")
+                            #expect(settings[.MODULEMAP_FILE_CONTENTS] == """
                             module FooLib1 {
                                 header "FooLib1-Swift.h"
                                 export *
                             }
                             """)
-                            XCTAssertEqual(
-                                settings[.MODULEMAP_PATH],
-                                "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/FooLib1.modulemap"
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "FooLib1")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "FooLib1")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(
-                                settings[.SWIFT_OBJC_INTERFACE_HEADER_DIR],
-                                "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)"
-                            )
-                            XCTAssertEqual(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME], "FooLib1-Swift.h")
-                            XCTAssertEqual(settings[.SWIFT_VERSION], "5")
-                            XCTAssertEqual(settings[.TARGET_NAME], "FooLib1_Module")
+                            #expect(settings[.MODULEMAP_PATH] == "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/FooLib1.modulemap")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "FooLib1")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "FooLib1")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SWIFT_OBJC_INTERFACE_HEADER_DIR] == "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)")
+                            #expect(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME] == "FooLib1-Swift.h")
+                            #expect(settings[.SWIFT_VERSION] == "5")
+                            #expect(settings[.TARGET_NAME] == "FooLib1_Module")
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:FooLib1::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-TARGET:FooLib1::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS], "NO")
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GENERATE_MASTER_OBJECT_FILE], "NO")
-                            XCTAssertEqual(settings[.MACH_O_TYPE], "mh_object")
-                            XCTAssertEqual(settings[.MODULEMAP_FILE_CONTENTS], """
+                            #expect(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS] == "NO")
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GENERATE_MASTER_OBJECT_FILE] == "NO")
+                            #expect(settings[.MACH_O_TYPE] == "mh_object")
+                            #expect(settings[.MODULEMAP_FILE_CONTENTS] == """
                             module FooLib1 {
                                 header "FooLib1-Swift.h"
                                 export *
                             }
                             """)
-                            XCTAssertEqual(
-                                settings[.MODULEMAP_PATH],
-                                "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/FooLib1.modulemap"
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "FooLib1")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "FooLib1")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(
-                                settings[.SWIFT_OBJC_INTERFACE_HEADER_DIR],
-                                "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)"
-                            )
-                            XCTAssertEqual(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME], "FooLib1-Swift.h")
-                            XCTAssertEqual(settings[.SWIFT_VERSION], "5")
-                            XCTAssertEqual(settings[.TARGET_NAME], "FooLib1_Module")
+                            #expect(settings[.MODULEMAP_PATH] == "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/FooLib1.modulemap")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "FooLib1")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "FooLib1")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.SWIFT_OBJC_INTERFACE_HEADER_DIR] == "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)")
+                            #expect(settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME] == "FooLib1-Swift.h")
+                            #expect(settings[.SWIFT_VERSION] == "5")
+                            #expect(settings[.TARGET_NAME] == "FooLib1_Module")
                         }
                     }
 
                     target.checkAllImpartedBuildSettings { settings in
-                        XCTAssertEqual(settings[.OTHER_CFLAGS], [
+                        #expect(settings[.OTHER_CFLAGS] == [
                             "$(inherited)",
                             "-fmodule-map-file=$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/FooLib1.modulemap",
                         ])
-                        XCTAssertEqual(settings[.OTHER_LDRFLAGS], [])
-                        XCTAssertEqual(settings[.OTHER_LDFLAGS], ["$(inherited)", "-Wl,-no_warn_duplicate_libraries"])
+                        #expect(settings[.OTHER_LDRFLAGS] == [])
+                        #expect(settings[.OTHER_LDFLAGS] == ["$(inherited)", "-Wl,-no_warn_duplicate_libraries"])
                     }
                 }
 
                 project.checkTarget("PACKAGE-TARGET:FooLib2") { target in
-                    XCTAssertEqual(target.name, "FooLib2")
-                    XCTAssertEqual(target.productType, .objectFile)
-                    XCTAssertEqual(target.productName, "FooLib2_Module.o")
-                    XCTAssertEqual(target.dependencies, ["PACKAGE-PRODUCT:BarLib"])
-                    XCTAssertEqual(target.sources, ["/Foo/Sources/FooLib2/lib.cpp"])
-                    XCTAssertEqual(target.frameworks, [])
+                    #expect(target.name == "FooLib2")
+                    #expect(target.productType == .objectFile)
+                    #expect(target.productName == "FooLib2_Module.o")
+                    #expect(target.dependencies == ["PACKAGE-PRODUCT:BarLib"])
+                    #expect(target.sources == ["/Foo/Sources/FooLib2/lib.cpp"])
+                    #expect(target.frameworks == [])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:FooLib2::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-TARGET:FooLib2::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS], "NO")
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.CLANG_CXX_LANGUAGE_STANDARD], "c++14")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GENERATE_MASTER_OBJECT_FILE], "NO")
-                            XCTAssertEqual(
-                                settings[.HEADER_SEARCH_PATHS],
-                                ["$(inherited)", "/Foo/Sources/FooLib2/include"]
-                            )
-                            XCTAssertEqual(settings[.MACH_O_TYPE], "mh_object")
-                            XCTAssertEqual(settings[.MODULEMAP_FILE_CONTENTS], """
+                            #expect(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS] == "NO")
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.CLANG_CXX_LANGUAGE_STANDARD] == "c++14")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GENERATE_MASTER_OBJECT_FILE] == "NO")
+                            #expect(settings[.HEADER_SEARCH_PATHS] == ["$(inherited)", "/Foo/Sources/FooLib2/include"])
+                            #expect(settings[.MACH_O_TYPE] == "mh_object")
+                            #expect(settings[.MODULEMAP_FILE_CONTENTS] == """
                             module FooLib2 {
                                 umbrella "/Foo/Sources/FooLib2/include"
                                 export *
                             }
                             """)
-                            XCTAssertEqual(
-                                settings[.MODULEMAP_PATH],
-                                "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/FooLib2.modulemap"
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "FooLib2")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "FooLib2")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "FooLib2_Module")
+                            #expect(settings[.MODULEMAP_PATH] == "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/FooLib2.modulemap")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "FooLib2")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "FooLib2")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "FooLib2_Module")
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:FooLib2::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-TARGET:FooLib2::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS], "NO")
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.CLANG_CXX_LANGUAGE_STANDARD], "c++14")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GENERATE_MASTER_OBJECT_FILE], "NO")
-                            XCTAssertEqual(
-                                settings[.HEADER_SEARCH_PATHS],
-                                ["$(inherited)", "/Foo/Sources/FooLib2/include"]
-                            )
-                            XCTAssertEqual(settings[.MACH_O_TYPE], "mh_object")
-                            XCTAssertEqual(settings[.MODULEMAP_FILE_CONTENTS], """
+                            #expect(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS] == "NO")
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.CLANG_CXX_LANGUAGE_STANDARD] == "c++14")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GENERATE_MASTER_OBJECT_FILE] == "NO")
+                            #expect(settings[.HEADER_SEARCH_PATHS] == ["$(inherited)", "/Foo/Sources/FooLib2/include"])
+                            #expect(settings[.MACH_O_TYPE] == "mh_object")
+                            #expect(settings[.MODULEMAP_FILE_CONTENTS] == """
                             module FooLib2 {
                                 umbrella "/Foo/Sources/FooLib2/include"
                                 export *
                             }
                             """)
-                            XCTAssertEqual(
-                                settings[.MODULEMAP_PATH],
-                                "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/FooLib2.modulemap"
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "FooLib2")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "FooLib2")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "FooLib2_Module")
+                            #expect(settings[.MODULEMAP_PATH] == "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/FooLib2.modulemap")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "FooLib2")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "FooLib2")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "FooLib2_Module")
                         }
                     }
 
                     target.checkAllImpartedBuildSettings { settings in
-                        XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], ["$(inherited)", "/Foo/Sources/FooLib2/include"])
-                        XCTAssertEqual(settings[.OTHER_CFLAGS], [
+                        #expect(settings[.HEADER_SEARCH_PATHS] == ["$(inherited)", "/Foo/Sources/FooLib2/include"])
+                        #expect(settings[.OTHER_CFLAGS] == [
                             "$(inherited)",
                             "-fmodule-map-file=$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/FooLib2.modulemap",
                         ])
-                        XCTAssertEqual(settings[.OTHER_LDRFLAGS], [])
-                        XCTAssertEqual(
-                            settings[.OTHER_LDFLAGS],
-                            ["$(inherited)", "-lc++", "-Wl,-no_warn_duplicate_libraries"]
-                        )
-                        XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], [
+                        #expect(settings[.OTHER_LDRFLAGS] == [])
+                        #expect(settings[.OTHER_LDFLAGS] == ["$(inherited)", "-lc++", "-Wl,-no_warn_duplicate_libraries"])
+                        #expect(settings[.OTHER_SWIFT_FLAGS] == [
                             "$(inherited)",
                             "-Xcc",
                             "-fmodule-map-file=$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/FooLib2.modulemap",
@@ -1534,86 +1367,74 @@ final class PIFBuilderTests: XCTestCase {
 
             try workspace.checkProject("PACKAGE:/Bar") { project in
                 project.checkTarget("PACKAGE-TARGET:BarLib") { target in
-                    XCTAssertEqual(target.name, "BarLib")
-                    XCTAssertEqual(target.productType, .objectFile)
-                    XCTAssertEqual(target.productName, "BarLib_Module.o")
-                    XCTAssertEqual(target.dependencies, [])
-                    XCTAssertEqual(target.sources, ["/Bar/Sources/BarLib/lib.c"])
-                    XCTAssertEqual(target.frameworks, [])
+                    #expect(target.name == "BarLib")
+                    #expect(target.productType == .objectFile)
+                    #expect(target.productName == "BarLib_Module.o")
+                    #expect(target.dependencies == [])
+                    #expect(target.sources == ["/Bar/Sources/BarLib/lib.c"])
+                    #expect(target.frameworks == [])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:BarLib::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-TARGET:BarLib::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS], "NO")
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GCC_C_LANGUAGE_STANDARD], "c11")
-                            XCTAssertEqual(settings[.GENERATE_MASTER_OBJECT_FILE], "NO")
-                            XCTAssertEqual(
-                                settings[.HEADER_SEARCH_PATHS],
-                                ["$(inherited)", "/Bar/Sources/BarLib/include"]
-                            )
-                            XCTAssertEqual(settings[.MACH_O_TYPE], "mh_object")
-                            XCTAssertEqual(settings[.MODULEMAP_FILE_CONTENTS], """
+                            #expect(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS] == "NO")
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GCC_C_LANGUAGE_STANDARD] == "c11")
+                            #expect(settings[.GENERATE_MASTER_OBJECT_FILE] == "NO")
+                            #expect(settings[.HEADER_SEARCH_PATHS] == ["$(inherited)", "/Bar/Sources/BarLib/include"])
+                            #expect(settings[.MACH_O_TYPE] == "mh_object")
+                            #expect(settings[.MODULEMAP_FILE_CONTENTS] == """
                             module BarLib {
                                 umbrella "/Bar/Sources/BarLib/include"
                                 export *
                             }
                             """)
-                            XCTAssertEqual(
-                                settings[.MODULEMAP_PATH],
-                                "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/BarLib.modulemap"
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "BarLib")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "BarLib")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "BarLib_Module")
+                            #expect(settings[.MODULEMAP_PATH] == "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/BarLib.modulemap")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "BarLib")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "BarLib")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "BarLib_Module")
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:BarLib::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-TARGET:BarLib::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS], "NO")
-                            XCTAssertEqual(settings[.CLANG_ENABLE_MODULES], "YES")
-                            XCTAssertEqual(settings[.DEFINES_MODULE], "YES")
-                            XCTAssertEqual(settings[.GCC_C_LANGUAGE_STANDARD], "c11")
-                            XCTAssertEqual(settings[.GENERATE_MASTER_OBJECT_FILE], "NO")
-                            XCTAssertEqual(
-                                settings[.HEADER_SEARCH_PATHS],
-                                ["$(inherited)", "/Bar/Sources/BarLib/include"]
-                            )
-                            XCTAssertEqual(settings[.MACH_O_TYPE], "mh_object")
-                            XCTAssertEqual(settings[.MODULEMAP_FILE_CONTENTS], """
+                            #expect(settings[.CLANG_COVERAGE_MAPPING_LINKER_ARGS] == "NO")
+                            #expect(settings[.CLANG_ENABLE_MODULES] == "YES")
+                            #expect(settings[.DEFINES_MODULE] == "YES")
+                            #expect(settings[.GCC_C_LANGUAGE_STANDARD] == "c11")
+                            #expect(settings[.GENERATE_MASTER_OBJECT_FILE] == "NO")
+                            #expect(settings[.HEADER_SEARCH_PATHS] == ["$(inherited)", "/Bar/Sources/BarLib/include"])
+                            #expect(settings[.MACH_O_TYPE] == "mh_object")
+                            #expect(settings[.MODULEMAP_FILE_CONTENTS] == """
                             module BarLib {
                                 umbrella "/Bar/Sources/BarLib/include"
                                 export *
                             }
                             """)
-                            XCTAssertEqual(
-                                settings[.MODULEMAP_PATH],
-                                "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/BarLib.modulemap"
-                            )
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "regular")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "BarLib")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "BarLib")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "BarLib_Module")
+                            #expect(settings[.MODULEMAP_PATH] == "$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/BarLib.modulemap")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "regular")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "BarLib")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "BarLib")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "BarLib_Module")
                         }
                     }
 
                     target.checkAllImpartedBuildSettings { settings in
-                        XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], ["$(inherited)", "/Bar/Sources/BarLib/include"])
-                        XCTAssertEqual(settings[.OTHER_CFLAGS], [
+                        #expect(settings[.HEADER_SEARCH_PATHS] == ["$(inherited)", "/Bar/Sources/BarLib/include"])
+                        #expect(settings[.OTHER_CFLAGS] == [
                             "$(inherited)",
                             "-fmodule-map-file=$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/BarLib.modulemap",
                         ])
-                        XCTAssertEqual(settings[.OTHER_LDRFLAGS], [])
-                        XCTAssertEqual(settings[.OTHER_LDFLAGS], ["$(inherited)", "-Wl,-no_warn_duplicate_libraries"])
-                        XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], [
+                        #expect(settings[.OTHER_LDRFLAGS] == [])
+                        #expect(settings[.OTHER_LDFLAGS] == ["$(inherited)", "-Wl,-no_warn_duplicate_libraries"])
+                        #expect(settings[.OTHER_SWIFT_FLAGS] == [
                             "$(inherited)",
                             "-Xcc",
                             "-fmodule-map-file=$(OBJROOT)/GeneratedModuleMaps/$(PLATFORM_NAME)/BarLib.modulemap",
@@ -1624,10 +1445,10 @@ final class PIFBuilderTests: XCTestCase {
         }
     }
 
-    func testPIFGenWithModuleAliases() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func pIFGenWithModuleAliases() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/App/Sources/App/main.swift",
@@ -1681,85 +1502,85 @@ final class PIFBuilderTests: XCTestCase {
             pif = try builder.construct()
         }
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/App") { project in
                 project.checkTarget("PACKAGE-PRODUCT:App") { target in
-                    XCTAssertEqual(target.name, "App_1DA2DD44_PackageProduct")
-                    XCTAssertEqual(target.productType, .executable)
-                    XCTAssertEqual(target.productName, "App")
-                    XCTAssertEqual(target.dependencies, [
+                    #expect(target.name == "App_1DA2DD44_PackageProduct")
+                    #expect(target.productType == .executable)
+                    #expect(target.productName == "App")
+                    #expect(target.dependencies == [
                         "PACKAGE-TARGET:Utils",
                         "PACKAGE-TARGET:Logging",
                         "PACKAGE-PRODUCT:BarLib",
                     ])
-                    XCTAssertEqual(target.frameworks, [
+                    #expect(target.frameworks == [
                         "PACKAGE-TARGET:Utils",
                         "PACKAGE-TARGET:Logging",
                         "PACKAGE-PRODUCT:BarLib",
                     ])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:App::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:App::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == nil)
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:App::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:App::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == nil)
                         }
                     }
                 }
 
                 project.checkTarget("PACKAGE-TARGET:Utils") { target in
-                    XCTAssertEqual(target.name, "Utils")
-                    XCTAssertEqual(target.productType, .objectFile)
-                    XCTAssertEqual(target.productName, "Utils_Module.o")
-                    XCTAssertEqual(target.dependencies, [
+                    #expect(target.name == "Utils")
+                    #expect(target.productType == .objectFile)
+                    #expect(target.productName == "Utils_Module.o")
+                    #expect(target.dependencies == [
                         "PACKAGE-PRODUCT:BarLib",
                     ])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Utils::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-TARGET:Utils::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == nil)
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Utils::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-TARGET:Utils::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == nil)
                         }
                     }
                 }
                 project.checkTarget("PACKAGE-TARGET:Logging") { target in
-                    XCTAssertEqual(target.name, "Logging")
-                    XCTAssertEqual(target.productType, .objectFile)
-                    XCTAssertEqual(target.productName, "Logging_Module.o")
-                    XCTAssertEqual(target.dependencies, [])
+                    #expect(target.name == "Logging")
+                    #expect(target.productType == .objectFile)
+                    #expect(target.productName == "Logging_Module.o")
+                    #expect(target.dependencies == [])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Logging::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-TARGET:Logging::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == nil)
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Logging::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-TARGET:Logging::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == nil)
                         }
                     }
                 }
@@ -1767,85 +1588,85 @@ final class PIFBuilderTests: XCTestCase {
 
             try workspace.checkProject("PACKAGE:/Bar") { project in
                 project.checkTarget("PACKAGE-PRODUCT:BarLib") { target in
-                    XCTAssertEqual(target.name, "BarLib_175D063FAE17B2_PackageProduct")
-                    XCTAssertEqual(target.productType, .framework)
-                    XCTAssertEqual(target.productName, "BarLib.framework")
-                    XCTAssertEqual(target.dependencies, ["PACKAGE-TARGET:BarLogging", "PACKAGE-TARGET:Lib"])
-                    XCTAssertEqual(target.frameworks, ["PACKAGE-TARGET:BarLogging", "PACKAGE-TARGET:Lib"])
+                    #expect(target.name == "BarLib_175D063FAE17B2_PackageProduct")
+                    #expect(target.productType == .framework)
+                    #expect(target.productName == "BarLib.framework")
+                    #expect(target.dependencies == ["PACKAGE-TARGET:BarLogging", "PACKAGE-TARGET:Lib"])
+                    #expect(target.frameworks == ["PACKAGE-TARGET:BarLogging", "PACKAGE-TARGET:Lib"])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:BarLib::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:BarLib::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "BarLib")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "BarLib")
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == nil)
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "BarLib")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "BarLib")
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-PRODUCT:BarLib::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-PRODUCT:BarLib::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertNil(settings[.SWIFT_MODULE_ALIASES])
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "BarLib")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "BarLib")
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == nil)
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "BarLib")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "BarLib")
                         }
                     }
                 }
                 project.checkTarget("PACKAGE-TARGET:BarLogging") { target in
-                    XCTAssertEqual(target.name, "BarLogging")
-                    XCTAssertEqual(target.productType, .objectFile)
-                    XCTAssertEqual(target.productName, "BarLogging_Module.o")
-                    XCTAssertEqual(target.dependencies, [])
-                    XCTAssertEqual(target.frameworks, [])
+                    #expect(target.name == "BarLogging")
+                    #expect(target.productType == .objectFile)
+                    #expect(target.productName == "BarLogging_Module.o")
+                    #expect(target.dependencies == [])
+                    #expect(target.frameworks == [])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:BarLogging::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-TARGET:BarLogging::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.SWIFT_MODULE_ALIASES], ["Logging=BarLogging"])
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "BarLogging_Module")
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == ["Logging=BarLogging"])
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "BarLogging_Module")
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:BarLogging::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-TARGET:BarLogging::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.SWIFT_MODULE_ALIASES], ["Logging=BarLogging"])
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "BarLogging_Module")
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == ["Logging=BarLogging"])
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "BarLogging_Module")
                         }
                     }
                 }
                 project.checkTarget("PACKAGE-TARGET:Lib") { target in
-                    XCTAssertEqual(target.name, "Lib")
-                    XCTAssertEqual(target.productType, .objectFile)
-                    XCTAssertEqual(target.productName, "Lib_Module.o")
-                    XCTAssertEqual(target.dependencies, ["PACKAGE-TARGET:BarLogging"])
-                    XCTAssertEqual(target.frameworks, [])
+                    #expect(target.name == "Lib")
+                    #expect(target.productType == .objectFile)
+                    #expect(target.productName == "Lib_Module.o")
+                    #expect(target.dependencies == ["PACKAGE-TARGET:BarLogging"])
+                    #expect(target.frameworks == [])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Lib::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-TARGET:Lib::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.SWIFT_MODULE_ALIASES], ["Logging=BarLogging"])
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "Lib_Module")
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == ["Logging=BarLogging"])
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "Lib_Module")
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:Lib::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-TARGET:Lib::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.SWIFT_MODULE_ALIASES], ["Logging=BarLogging"])
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.TARGET_NAME], "Lib_Module")
+                            #expect(settings[.SWIFT_MODULE_ALIASES] == ["Logging=BarLogging"])
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.TARGET_NAME] == "Lib_Module")
                         }
                     }
                 }
@@ -1853,10 +1674,10 @@ final class PIFBuilderTests: XCTestCase {
         }
     }
 
-    func testLibraryTargetsAsDylib() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func libraryTargetsAsDylib() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Bar/Sources/BarLib/lib.c"
@@ -1894,23 +1715,23 @@ final class PIFBuilderTests: XCTestCase {
             pif = try builder.construct()
         }
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Bar") { project in
                 project.checkTarget("PACKAGE-PRODUCT:BarLib") { target in
-                    XCTAssertEqual(target.name, "BarLib_175D063FAE17B2_PackageProduct")
-                    XCTAssertEqual(target.productType, .dynamicLibrary)
-                    XCTAssertEqual(target.productName, "libBarLib.dylib")
+                    #expect(target.name == "BarLib_175D063FAE17B2_PackageProduct")
+                    #expect(target.productType == .dynamicLibrary)
+                    #expect(target.productName == "libBarLib.dylib")
                 }
             }
         }
     }
 
-    func testLibraryTargetWithModuleMap() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func libraryTargetWithModuleMap() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Bar/Sources/BarLib/lib.c",
@@ -1950,16 +1771,16 @@ final class PIFBuilderTests: XCTestCase {
             pif = try builder.construct()
         }
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Bar") { project in
                 project.checkTarget("PACKAGE-PRODUCT:BarLib") { target in
-                    XCTAssertEqual(target.name, "BarLib_175D063FAE17B2_PackageProduct")
+                    #expect(target.name == "BarLib_175D063FAE17B2_PackageProduct")
 
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertNil(settings[.MODULEMAP_FILE_CONTENTS])
+                            #expect(settings[.MODULEMAP_FILE_CONTENTS] == nil)
                         }
                     }
                 }
@@ -1967,10 +1788,10 @@ final class PIFBuilderTests: XCTestCase {
         }
     }
 
-    func testSystemLibraryTargets() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func systemLibraryTargets() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/SystemLib1/module.modulemap",
@@ -2007,35 +1828,35 @@ final class PIFBuilderTests: XCTestCase {
             pif = try builder.construct()
         }
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Foo") { project in
                 project.checkAggregateTarget("PACKAGE-TARGET:SystemLib1") { target in
-                    XCTAssertEqual(target.name, "SystemLib1")
-                    XCTAssertEqual(target.dependencies, [])
-                    XCTAssertEqual(target.sources, [])
-                    XCTAssertEqual(target.frameworks, [])
+                    #expect(target.name == "SystemLib1")
+                    #expect(target.dependencies == [])
+                    #expect(target.sources == [])
+                    #expect(target.frameworks == [])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:SystemLib1::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-TARGET:SystemLib1::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkNoBuildSettings()
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:SystemLib1::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-TARGET:SystemLib1::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkNoBuildSettings()
                     }
 
                     target.checkAllImpartedBuildSettings { settings in
-                        XCTAssertEqual(settings[.OTHER_CFLAGS], [
+                        #expect(settings[.OTHER_CFLAGS] == [
                             "$(inherited)",
                             "-fmodule-map-file=/Foo/Sources/SystemLib1/module.modulemap",
                         ])
-                        XCTAssertEqual(settings[.OTHER_LDRFLAGS], [])
-                        XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], [
+                        #expect(settings[.OTHER_LDRFLAGS] == [])
+                        #expect(settings[.OTHER_SWIFT_FLAGS] == [
                             "$(inherited)",
                             "-Xcc", "-fmodule-map-file=/Foo/Sources/SystemLib1/module.modulemap",
                         ])
@@ -2043,38 +1864,38 @@ final class PIFBuilderTests: XCTestCase {
                 }
 
                 project.checkAggregateTarget("PACKAGE-TARGET:SystemLib2") { target in
-                    XCTAssertEqual(target.name, "SystemLib2")
-                    XCTAssertEqual(target.dependencies, [])
-                    XCTAssertEqual(target.sources, [])
-                    XCTAssertEqual(target.frameworks, [])
+                    #expect(target.name == "SystemLib2")
+                    #expect(target.dependencies == [])
+                    #expect(target.sources == [])
+                    #expect(target.frameworks == [])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:SystemLib2::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-TARGET:SystemLib2::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkNoBuildSettings()
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-TARGET:SystemLib2::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-TARGET:SystemLib2::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkNoBuildSettings()
                     }
 
                     target.checkAllImpartedBuildSettings { settings in
-                        XCTAssertEqual(settings[.OTHER_CFLAGS], [
+                        #expect(settings[.OTHER_CFLAGS] == [
                             "$(inherited)",
                             "-fmodule-map-file=/Foo/Sources/SystemLib2/module.modulemap",
                             "-I/path/to/inc",
                             "-I\(self.inputsDir)",
                         ])
-                        XCTAssertEqual(settings[.OTHER_LDFLAGS], [
+                        #expect(settings[.OTHER_LDFLAGS] == [
                             "$(inherited)",
                             "-L/usr/da/lib",
                             "-lSystemModule",
                             "-lok",
                         ])
-                        XCTAssertEqual(settings[.OTHER_LDRFLAGS], [])
-                        XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], [
+                        #expect(settings[.OTHER_LDRFLAGS] == [])
+                        #expect(settings[.OTHER_SWIFT_FLAGS] == [
                             "$(inherited)",
                             "-Xcc", "-fmodule-map-file=/Foo/Sources/SystemLib2/module.modulemap",
                             "-I/path/to/inc",
@@ -2086,10 +1907,10 @@ final class PIFBuilderTests: XCTestCase {
         }
     }
 
-    func testBinaryTargets() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func binaryTargets() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/foo/main.swift",
@@ -2134,33 +1955,33 @@ final class PIFBuilderTests: XCTestCase {
         )
         let pif = try builder.construct()
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Foo") { project in
                 project.checkTarget("PACKAGE-PRODUCT:foo") { target in
-                    XCTAssert(target.frameworks.contains("/Foo/BinaryLibrary.xcframework"))
+                    #expect(target.frameworks.contains("/Foo/BinaryLibrary.xcframework"))
                 }
 
                 project.checkTarget("PACKAGE-PRODUCT:FooLib") { target in
-                    XCTAssert(target.frameworks.contains("/Foo/BinaryLibrary.xcframework"))
+                    #expect(target.frameworks.contains("/Foo/BinaryLibrary.xcframework"))
                 }
 
                 project.checkTarget("PACKAGE-PRODUCT:FooTests") { target in
-                    XCTAssert(target.frameworks.contains("/Foo/BinaryLibrary.xcframework"))
+                    #expect(target.frameworks.contains("/Foo/BinaryLibrary.xcframework"))
                 }
 
                 project.checkTarget("PACKAGE-TARGET:FooLib") { target in
-                    XCTAssert(target.frameworks.contains("/Foo/BinaryLibrary.xcframework"))
+                    #expect(target.frameworks.contains("/Foo/BinaryLibrary.xcframework"))
                 }
             }
         }
     }
 
-    func testResources() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func resources() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/foo/main.swift",
@@ -2212,168 +2033,168 @@ final class PIFBuilderTests: XCTestCase {
         )
         let pif = try builder.construct()
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Foo") { project in
                 project.checkTarget("PACKAGE-PRODUCT:foo") { target in
-                    XCTAssertEqual(target.dependencies, ["PACKAGE-RESOURCE:foo"])
-                    XCTAssert(target.sources.contains("/Foo/Sources/foo/Resources/Database.xcdatamodel"))
+                    #expect(target.dependencies == ["PACKAGE-RESOURCE:foo"])
+                    #expect(target.sources.contains("/Foo/Sources/foo/Resources/Database.xcdatamodel"))
 
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_BUNDLE_NAME], "Foo_foo")
+                            #expect(settings[.PACKAGE_RESOURCE_BUNDLE_NAME] == "Foo_foo")
                         }
                     }
 
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_BUNDLE_NAME], "Foo_foo")
+                            #expect(settings[.PACKAGE_RESOURCE_BUNDLE_NAME] == "Foo_foo")
                         }
                     }
 
                     target.checkImpartedBuildSettings { settings in
-                        XCTAssertEqual(settings[.EMBED_PACKAGE_RESOURCE_BUNDLE_NAMES], nil)
+                        #expect(settings[.EMBED_PACKAGE_RESOURCE_BUNDLE_NAMES] == nil)
                     }
                 }
 
                 project.checkTarget("PACKAGE-RESOURCE:foo") { target in
-                    XCTAssertEqual(target.name, "Foo_foo")
-                    XCTAssertEqual(target.productType, .bundle)
-                    XCTAssertEqual(target.productName, "Foo_foo")
-                    XCTAssertEqual(target.dependencies, [])
-                    XCTAssertEqual(target.sources, [])
-                    XCTAssertEqual(target.frameworks, [])
-                    XCTAssertEqual(target.resources, [
+                    #expect(target.name == "Foo_foo")
+                    #expect(target.productType == .bundle)
+                    #expect(target.productName == "Foo_foo")
+                    #expect(target.dependencies == [])
+                    #expect(target.sources == [])
+                    #expect(target.frameworks == [])
+                    #expect(target.resources == [
                         "/Foo/Sources/foo/Resources/Data.plist",
                         "/Foo/Sources/foo/Resources/Database.xcdatamodel",
                     ])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-RESOURCE:foo::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-RESOURCE:foo::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.TARGET_NAME], "Foo_foo")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "Foo_foo")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "Foo.foo.resources")
-                            XCTAssertEqual(settings[.GENERATE_INFOPLIST_FILE], "YES")
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "resource")
+                            #expect(settings[.TARGET_NAME] == "Foo_foo")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "Foo_foo")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "Foo.foo.resources")
+                            #expect(settings[.GENERATE_INFOPLIST_FILE] == "YES")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "resource")
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-RESOURCE:foo::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-RESOURCE:foo::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.TARGET_NAME], "Foo_foo")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "Foo_foo")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "Foo.foo.resources")
-                            XCTAssertEqual(settings[.GENERATE_INFOPLIST_FILE], "YES")
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "resource")
+                            #expect(settings[.TARGET_NAME] == "Foo_foo")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "Foo_foo")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "Foo.foo.resources")
+                            #expect(settings[.GENERATE_INFOPLIST_FILE] == "YES")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "resource")
                         }
                     }
                 }
 
                 project.checkTarget("PACKAGE-PRODUCT:FooLib") { target in
-                    XCTAssert(!target.dependencies.contains("PACKAGE-RESOURCE:FooLib"))
-                    XCTAssert(!target.sources.contains("/Foo/Sources/FooLib/Resources/Database.xcdatamodel"))
+                    #expect(!target.dependencies.contains("PACKAGE-RESOURCE:FooLib"))
+                    #expect(!target.sources.contains("/Foo/Sources/FooLib/Resources/Database.xcdatamodel"))
 
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_BUNDLE_NAME], nil)
+                            #expect(settings[.PACKAGE_RESOURCE_BUNDLE_NAME] == nil)
                         }
                     }
 
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_BUNDLE_NAME], nil)
+                            #expect(settings[.PACKAGE_RESOURCE_BUNDLE_NAME] == nil)
                         }
                     }
 
                     target.checkImpartedBuildSettings { settings in
-                        XCTAssertEqual(settings[.EMBED_PACKAGE_RESOURCE_BUNDLE_NAMES], nil)
+                        #expect(settings[.EMBED_PACKAGE_RESOURCE_BUNDLE_NAMES] == nil)
                     }
                 }
 
                 project.checkTarget("PACKAGE-TARGET:FooLib") { target in
-                    XCTAssertEqual(target.dependencies, ["PACKAGE-RESOURCE:FooLib"])
-                    XCTAssert(target.sources.contains("/Foo/Sources/FooLib/Resources/Database.xcdatamodel"))
+                    #expect(target.dependencies == ["PACKAGE-RESOURCE:FooLib"])
+                    #expect(target.sources.contains("/Foo/Sources/FooLib/Resources/Database.xcdatamodel"))
 
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_BUNDLE_NAME], "Foo_FooLib")
+                            #expect(settings[.PACKAGE_RESOURCE_BUNDLE_NAME] == "Foo_FooLib")
                         }
                     }
 
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_BUNDLE_NAME], "Foo_FooLib")
+                            #expect(settings[.PACKAGE_RESOURCE_BUNDLE_NAME] == "Foo_FooLib")
                         }
                     }
 
                     target.checkImpartedBuildSettings { settings in
-                        XCTAssertEqual(settings[.EMBED_PACKAGE_RESOURCE_BUNDLE_NAMES], ["$(inherited)", "Foo_FooLib"])
+                        #expect(settings[.EMBED_PACKAGE_RESOURCE_BUNDLE_NAMES] == ["$(inherited)", "Foo_FooLib"])
                     }
                 }
 
                 project.checkTarget("PACKAGE-PRODUCT:FooTests") { target in
-                    XCTAssertEqual(target.dependencies, ["PACKAGE-RESOURCE:FooTests"])
-                    XCTAssert(target.sources.contains("/Foo/Sources/FooTests/Resources/Database.xcdatamodel"))
+                    #expect(target.dependencies == ["PACKAGE-RESOURCE:FooTests"])
+                    #expect(target.sources.contains("/Foo/Sources/FooTests/Resources/Database.xcdatamodel"))
 
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_BUNDLE_NAME], "Foo_FooTests")
+                            #expect(settings[.PACKAGE_RESOURCE_BUNDLE_NAME] == "Foo_FooTests")
                         }
                     }
 
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_BUNDLE_NAME], "Foo_FooTests")
+                            #expect(settings[.PACKAGE_RESOURCE_BUNDLE_NAME] == "Foo_FooTests")
                         }
                     }
 
                     target.checkImpartedBuildSettings { settings in
-                        XCTAssertEqual(settings[.EMBED_PACKAGE_RESOURCE_BUNDLE_NAMES], nil)
+                        #expect(settings[.EMBED_PACKAGE_RESOURCE_BUNDLE_NAMES] == nil)
                     }
                 }
 
                 project.checkTarget("PACKAGE-RESOURCE:FooTests") { target in
-                    XCTAssertEqual(target.name, "Foo_FooTests")
-                    XCTAssertEqual(target.productType, .bundle)
-                    XCTAssertEqual(target.productName, "Foo_FooTests")
-                    XCTAssertEqual(target.dependencies, [])
-                    XCTAssertEqual(target.sources, [])
-                    XCTAssertEqual(target.frameworks, [])
-                    XCTAssertEqual(target.resources, [
+                    #expect(target.name == "Foo_FooTests")
+                    #expect(target.productType == .bundle)
+                    #expect(target.productName == "Foo_FooTests")
+                    #expect(target.dependencies == [])
+                    #expect(target.sources == [])
+                    #expect(target.frameworks == [])
+                    #expect(target.resources == [
                         "/Foo/Sources/FooTests/Resources/Data.plist",
                         "/Foo/Sources/FooTests/Resources/Database.xcdatamodel",
                     ])
 
                     target.checkBuildConfiguration("Debug") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-RESOURCE:FooTests::BUILDCONFIG_Debug")
-                        XCTAssertEqual(configuration.name, "Debug")
+                        #expect(configuration.guid == "PACKAGE-RESOURCE:FooTests::BUILDCONFIG_Debug")
+                        #expect(configuration.name == "Debug")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.TARGET_NAME], "Foo_FooTests")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "Foo_FooTests")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "Foo.FooTests.resources")
-                            XCTAssertEqual(settings[.GENERATE_INFOPLIST_FILE], "YES")
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "resource")
+                            #expect(settings[.TARGET_NAME] == "Foo_FooTests")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "Foo_FooTests")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "Foo.FooTests.resources")
+                            #expect(settings[.GENERATE_INFOPLIST_FILE] == "YES")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "resource")
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
-                        XCTAssertEqual(configuration.guid, "PACKAGE-RESOURCE:FooTests::BUILDCONFIG_Release")
-                        XCTAssertEqual(configuration.name, "Release")
+                        #expect(configuration.guid == "PACKAGE-RESOURCE:FooTests::BUILDCONFIG_Release")
+                        #expect(configuration.name == "Release")
                         configuration.checkAllBuildSettings { settings in
-                            XCTAssertEqual(settings[.TARGET_NAME], "Foo_FooTests")
-                            XCTAssertEqual(settings[.PRODUCT_NAME], "$(TARGET_NAME)")
-                            XCTAssertEqual(settings[.PRODUCT_MODULE_NAME], "Foo_FooTests")
-                            XCTAssertEqual(settings[.PRODUCT_BUNDLE_IDENTIFIER], "Foo.FooTests.resources")
-                            XCTAssertEqual(settings[.GENERATE_INFOPLIST_FILE], "YES")
-                            XCTAssertEqual(settings[.PACKAGE_RESOURCE_TARGET_KIND], "resource")
+                            #expect(settings[.TARGET_NAME] == "Foo_FooTests")
+                            #expect(settings[.PRODUCT_NAME] == "$(TARGET_NAME)")
+                            #expect(settings[.PRODUCT_MODULE_NAME] == "Foo_FooTests")
+                            #expect(settings[.PRODUCT_BUNDLE_IDENTIFIER] == "Foo.FooTests.resources")
+                            #expect(settings[.GENERATE_INFOPLIST_FILE] == "YES")
+                            #expect(settings[.PACKAGE_RESOURCE_TARGET_KIND] == "resource")
                         }
                     }
                 }
@@ -2382,9 +2203,6 @@ final class PIFBuilderTests: XCTestCase {
     }
 
     func buildSettingsTestCase(isPackageAccessModifierSupported: Bool) throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/foo/main.swift",
@@ -2488,7 +2306,7 @@ final class PIFBuilderTests: XCTestCase {
         )
         let pif = try builder.construct()
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         let packageNameOptions = if isPackageAccessModifierSupported {
             ["-package-name", "foo"]
@@ -2501,41 +2319,29 @@ final class PIFBuilderTests: XCTestCase {
                 project.checkTarget("PACKAGE-PRODUCT:foo") { target in
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(
-                                settings[.GCC_PREPROCESSOR_DEFINITIONS],
-                                ["$(inherited)", "ENABLE_BEST_MODE"]
-                            )
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], nil)
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS, for: .macOS], [
+                            #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == ["$(inherited)", "ENABLE_BEST_MODE"])
+                            #expect(settings[.HEADER_SEARCH_PATHS] == nil)
+                            #expect(settings[.HEADER_SEARCH_PATHS, for: .macOS] == [
                                 "$(inherited)",
                                 "/Foo/Sources/foo/some/path",
                             ])
-                            XCTAssertEqual(settings[.OTHER_LDFLAGS], ["$(inherited)", "-lz"])
-                            XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], packageNameOptions)
+                            #expect(settings[.OTHER_LDFLAGS] == ["$(inherited)", "-lz"])
+                            #expect(settings[.OTHER_SWIFT_FLAGS] == packageNameOptions)
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(
-                                settings[.GCC_PREPROCESSOR_DEFINITIONS],
-                                ["$(inherited)", "ENABLE_BEST_MODE"]
-                            )
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], nil)
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS, for: .macOS], [
+                            #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == ["$(inherited)", "ENABLE_BEST_MODE"])
+                            #expect(settings[.HEADER_SEARCH_PATHS] == nil)
+                            #expect(settings[.HEADER_SEARCH_PATHS, for: .macOS] == [
                                 "$(inherited)",
                                 "/Foo/Sources/foo/some/path",
                             ])
-                            XCTAssertEqual(settings[.OTHER_LDFLAGS], nil)
-                            XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], packageNameOptions)
-                            XCTAssertEqual(
-                                settings[.OTHER_SWIFT_FLAGS, for: .macOS],
-                                ["$(inherited)", "-secret", "value"]
-                            )
-                            XCTAssertEqual(
-                                settings[.OTHER_SWIFT_FLAGS, for: .linux],
-                                ["$(inherited)", "-secret", "value"]
-                            )
+                            #expect(settings[.OTHER_LDFLAGS] == nil)
+                            #expect(settings[.OTHER_SWIFT_FLAGS] == packageNameOptions)
+                            #expect(settings[.OTHER_SWIFT_FLAGS, for: .macOS] == ["$(inherited)", "-secret", "value"])
+                            #expect(settings[.OTHER_SWIFT_FLAGS, for: .linux] == ["$(inherited)", "-secret", "value"])
                         }
                     }
                 }
@@ -2543,21 +2349,21 @@ final class PIFBuilderTests: XCTestCase {
                 project.checkTarget("PACKAGE-PRODUCT:FooLib") { target in
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.GCC_PREPROCESSOR_DEFINITIONS], nil)
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], nil)
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS, for: .macOS], nil)
-                            XCTAssertEqual(settings[.OTHER_LDFLAGS], nil)
-                            XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], nil)
+                            #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == nil)
+                            #expect(settings[.HEADER_SEARCH_PATHS] == nil)
+                            #expect(settings[.HEADER_SEARCH_PATHS, for: .macOS] == nil)
+                            #expect(settings[.OTHER_LDFLAGS] == nil)
+                            #expect(settings[.OTHER_SWIFT_FLAGS] == nil)
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.GCC_PREPROCESSOR_DEFINITIONS], nil)
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], nil)
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS, for: .macOS], nil)
-                            XCTAssertEqual(settings[.OTHER_LDFLAGS], nil)
-                            XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], nil)
+                            #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == nil)
+                            #expect(settings[.HEADER_SEARCH_PATHS] == nil)
+                            #expect(settings[.HEADER_SEARCH_PATHS, for: .macOS] == nil)
+                            #expect(settings[.OTHER_LDFLAGS] == nil)
+                            #expect(settings[.OTHER_SWIFT_FLAGS] == nil)
                         }
                     }
                 }
@@ -2565,93 +2371,66 @@ final class PIFBuilderTests: XCTestCase {
                 project.checkTarget("PACKAGE-TARGET:FooLib") { target in
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(
-                                settings[.GCC_PREPROCESSOR_DEFINITIONS],
-                                ["$(inherited)", "ENABLE_BEST_MODE"]
-                            )
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], nil)
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS, for: .macOS], [
+                            #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == ["$(inherited)", "ENABLE_BEST_MODE"])
+                            #expect(settings[.HEADER_SEARCH_PATHS] == nil)
+                            #expect(settings[.HEADER_SEARCH_PATHS, for: .macOS] == [
                                 "$(inherited)",
                                 "/Foo/Sources/FooLib/some/path",
                             ])
-                            XCTAssertEqual(settings[.OTHER_LDFLAGS], ["$(inherited)", "-lz"])
-                            XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], packageNameOptions)
+                            #expect(settings[.OTHER_LDFLAGS] == ["$(inherited)", "-lz"])
+                            #expect(settings[.OTHER_SWIFT_FLAGS] == packageNameOptions)
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(
-                                settings[.GCC_PREPROCESSOR_DEFINITIONS],
-                                ["$(inherited)", "ENABLE_BEST_MODE"]
-                            )
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], nil)
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS, for: .macOS], [
+                            #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == ["$(inherited)", "ENABLE_BEST_MODE"])
+                            #expect(settings[.HEADER_SEARCH_PATHS] == nil)
+                            #expect(settings[.HEADER_SEARCH_PATHS, for: .macOS] == [
                                 "$(inherited)",
                                 "/Foo/Sources/FooLib/some/path",
                             ])
-                            XCTAssertEqual(settings[.OTHER_LDFLAGS], nil)
-                            XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], packageNameOptions)
-                            XCTAssertEqual(
-                                settings[.OTHER_SWIFT_FLAGS, for: .macOS],
-                                ["$(inherited)", "-secret", "value"]
-                            )
-                            XCTAssertEqual(
-                                settings[.OTHER_SWIFT_FLAGS, for: .linux],
-                                ["$(inherited)", "-secret", "value"]
-                            )
+                            #expect(settings[.OTHER_LDFLAGS] == nil)
+                            #expect(settings[.OTHER_SWIFT_FLAGS] == packageNameOptions)
+                            #expect(settings[.OTHER_SWIFT_FLAGS, for: .macOS] == ["$(inherited)", "-secret", "value"])
+                            #expect(settings[.OTHER_SWIFT_FLAGS, for: .linux] == ["$(inherited)", "-secret", "value"])
                         }
                     }
 
                     target.checkImpartedBuildSettings { settings in
-                        XCTAssertEqual(settings[.GCC_PREPROCESSOR_DEFINITIONS], nil)
-                        XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], nil)
-                        XCTAssertEqual(
-                            settings[.OTHER_LDFLAGS],
-                            ["$(inherited)", "-Wl,-no_warn_duplicate_libraries", "-lz"]
-                        )
-                        XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], nil)
+                        #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == nil)
+                        #expect(settings[.HEADER_SEARCH_PATHS] == nil)
+                        #expect(settings[.OTHER_LDFLAGS] == ["$(inherited)", "-Wl,-no_warn_duplicate_libraries", "-lz"])
+                        #expect(settings[.OTHER_SWIFT_FLAGS] == nil)
                     }
                 }
 
                 project.checkTarget("PACKAGE-PRODUCT:FooTests") { target in
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(
-                                settings[.GCC_PREPROCESSOR_DEFINITIONS],
-                                ["$(inherited)", "ENABLE_BEST_MODE"]
-                            )
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], nil)
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS, for: .macOS], [
+                            #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == ["$(inherited)", "ENABLE_BEST_MODE"])
+                            #expect(settings[.HEADER_SEARCH_PATHS] == nil)
+                            #expect(settings[.HEADER_SEARCH_PATHS, for: .macOS] == [
                                 "$(inherited)",
                                 "/Foo/Sources/FooTests/some/path",
                             ])
-                            XCTAssertEqual(settings[.OTHER_LDFLAGS], ["$(inherited)", "-lz"])
-                            XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], packageNameOptions)
+                            #expect(settings[.OTHER_LDFLAGS] == ["$(inherited)", "-lz"])
+                            #expect(settings[.OTHER_SWIFT_FLAGS] == packageNameOptions)
                         }
                     }
 
                     target.checkBuildConfiguration("Release") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(
-                                settings[.GCC_PREPROCESSOR_DEFINITIONS],
-                                ["$(inherited)", "ENABLE_BEST_MODE"]
-                            )
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS], nil)
-                            XCTAssertEqual(settings[.HEADER_SEARCH_PATHS, for: .macOS], [
+                            #expect(settings[.GCC_PREPROCESSOR_DEFINITIONS] == ["$(inherited)", "ENABLE_BEST_MODE"])
+                            #expect(settings[.HEADER_SEARCH_PATHS] == nil)
+                            #expect(settings[.HEADER_SEARCH_PATHS, for: .macOS] == [
                                 "$(inherited)",
                                 "/Foo/Sources/FooTests/some/path",
                             ])
-                            XCTAssertEqual(settings[.OTHER_LDFLAGS], nil)
-                            XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], packageNameOptions)
-                            XCTAssertEqual(
-                                settings[.OTHER_SWIFT_FLAGS, for: .macOS],
-                                ["$(inherited)", "-secret", "value"]
-                            )
-                            XCTAssertEqual(
-                                settings[.OTHER_SWIFT_FLAGS, for: .linux],
-                                ["$(inherited)", "-secret", "value"]
-                            )
+                            #expect(settings[.OTHER_LDFLAGS] == nil)
+                            #expect(settings[.OTHER_SWIFT_FLAGS] == packageNameOptions)
+                            #expect(settings[.OTHER_SWIFT_FLAGS, for: .macOS] == ["$(inherited)", "-secret", "value"])
+                            #expect(settings[.OTHER_SWIFT_FLAGS, for: .linux] == ["$(inherited)", "-secret", "value"])
                         }
                     }
                 }
@@ -2659,18 +2438,24 @@ final class PIFBuilderTests: XCTestCase {
         }
     }
 
-    func testBuildSettings() throws {
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func buildSettings() throws {
         try self.buildSettingsTestCase(isPackageAccessModifierSupported: false)
     }
 
-    func testBuildSettingsPackageAccess() throws {
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func buildSettingsPackageAccess() throws {
         try self.buildSettingsTestCase(isPackageAccessModifierSupported: true)
     }
 
-    func testConditionalDependencies() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func conditionalDependencies() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/foo/main.swift",
@@ -2702,7 +2487,7 @@ final class PIFBuilderTests: XCTestCase {
             observabilityScope: observability.topScope
         )
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         let builder = PIFBuilder(
             graph: graph,
@@ -2720,14 +2505,14 @@ final class PIFBuilderTests: XCTestCase {
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Foo") { project in
                 project.checkTarget("PACKAGE-PRODUCT:foo") { target in
-                    XCTAssertEqual(target.dependencies, ["PACKAGE-TARGET:FooLib1", "PACKAGE-TARGET:FooLib2"])
-                    XCTAssertEqual(target.frameworks, ["PACKAGE-TARGET:FooLib1", "PACKAGE-TARGET:FooLib2"])
+                    #expect(target.dependencies == ["PACKAGE-TARGET:FooLib1", "PACKAGE-TARGET:FooLib2"])
+                    #expect(target.frameworks == ["PACKAGE-TARGET:FooLib1", "PACKAGE-TARGET:FooLib2"])
 
                     let dependencyMap = Dictionary(uniqueKeysWithValues: target.baseTarget.dependencies.map { (
                         $0.targetGUID,
                         $0.platformFilters
                     ) })
-                    XCTAssertEqual(dependencyMap, expectedFilters)
+                    #expect(dependencyMap == expectedFilters)
 
                     let frameworksBuildFiles = target.baseTarget.buildPhases.first { $0 is PIF.FrameworksBuildPhase }?
                         .buildFiles ?? []
@@ -2738,23 +2523,23 @@ final class PIFBuilderTests: XCTestCase {
                                 [PIF.PlatformFilter]
                             )? in
                                 switch file.reference {
-                                case .target(let guid):
-                                    return (guid, file.platformFilters)
-                                case .file:
-                                    return nil
+                                    case .target(let guid):
+                                        return (guid, file.platformFilters)
+                                    case .file:
+                                        return nil
                                 }
                             }
                     )
-                    XCTAssertEqual(dependencyMap, frameworksBuildFilesMap)
+                    #expect(dependencyMap == frameworksBuildFilesMap)
                 }
             }
         }
     }
 
-    func testSDKOptions() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func sDKOptions() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/foo/main.swift"
@@ -2788,13 +2573,13 @@ final class PIFBuilderTests: XCTestCase {
         )
         let pif = try builder.construct()
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Foo") { project in
                 project.checkBuildConfiguration("Debug") { configuration in
                     configuration.checkBuildSettings { settings in
-                        XCTAssertEqual(settings[.SPECIALIZATION_SDK_OPTIONS, for: .macOS], ["best"])
+                        #expect(settings[.SPECIALIZATION_SDK_OPTIONS, for: .macOS] == ["best"])
                     }
                 }
             }
@@ -2803,10 +2588,10 @@ final class PIFBuilderTests: XCTestCase {
 
     /// Tests that the inference of XCBuild build settings based on the package manifest's declared unsafe settings
     /// works as expected.
-    func testUnsafeFlagsBuildSettingInference() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func unsafeFlagsBuildSettingInference() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/MyLib/Sources/MyLib/Foo.swift"
@@ -2846,7 +2631,7 @@ final class PIFBuilderTests: XCTestCase {
         )
         let pif = try builder.construct()
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/MyLib") { project in
@@ -2854,16 +2639,16 @@ final class PIFBuilderTests: XCTestCase {
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
                             // Check that the `-enable-library-evolution` setting for Release didn't affect Debug.
-                            XCTAssertEqual(settings[.SWIFT_EMIT_MODULE_INTERFACE], nil)
-                            XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], nil)
+                            #expect(settings[.SWIFT_EMIT_MODULE_INTERFACE] == nil)
+                            #expect(settings[.OTHER_SWIFT_FLAGS] == nil)
                         }
                     }
                     target.checkBuildConfiguration("Release") { configuration in
                         configuration.checkBuildSettings { settings in
                             // Check that the `-enable-library-evolution` setting for Release also set
                             // SWIFT_EMIT_MODULE_INTERFACE.
-                            XCTAssertEqual(settings[.SWIFT_EMIT_MODULE_INTERFACE], "YES")
-                            XCTAssertEqual(settings[.OTHER_SWIFT_FLAGS], ["$(inherited)", "-enable-library-evolution"])
+                            #expect(settings[.SWIFT_EMIT_MODULE_INTERFACE] == "YES")
+                            #expect(settings[.OTHER_SWIFT_FLAGS] == ["$(inherited)", "-enable-library-evolution"])
                         }
                     }
                 }
@@ -2871,10 +2656,10 @@ final class PIFBuilderTests: XCTestCase {
         }
     }
 
-    func testSupportedSwiftVersions() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func supportedSwiftVersions() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/foo/main.swift",
@@ -2914,14 +2699,14 @@ final class PIFBuilderTests: XCTestCase {
         )
         let pif = try builder.construct()
 
-        XCTAssertNoDiagnostics(observability.diagnostics)
+        try requireNoDiagnostics(observability.diagnostics)
 
         try PIFTester(pif) { workspace in
             try workspace.checkProject("PACKAGE:/Foo") { project in
                 project.checkTarget("PACKAGE-PRODUCT:foo") { target in
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.SWIFT_VERSION], "5")
+                            #expect(settings[.SWIFT_VERSION] == "5")
                         }
                     }
                 }
@@ -2929,8 +2714,8 @@ final class PIFBuilderTests: XCTestCase {
                 project.checkTarget("PACKAGE-PRODUCT:bar") { target in
                     target.checkBuildConfiguration("Debug") { configuration in
                         configuration.checkBuildSettings { settings in
-                            XCTAssertEqual(settings[.SWIFT_VERSION], "5")
-                            XCTAssertEqual(settings[.SWIFT_VERSION, for: .linux], "4.2")
+                            #expect(settings[.SWIFT_VERSION] == "5")
+                            #expect(settings[.SWIFT_VERSION, for: .linux] == "4.2")
                         }
                     }
                 }
@@ -2938,10 +2723,10 @@ final class PIFBuilderTests: XCTestCase {
         }
     }
 
-    func testPerTargetSwiftVersions() throws {
-        #if !os(macOS)
-        try XCTSkipIf(true, "test is only supported on macOS")
-        #endif
+    @Test(
+        .disabled(if: !isMacOS(), "test is only supported on macOS")
+    )
+    func perTargetSwiftVersions() throws {
         let fs = InMemoryFileSystem(
             emptyFiles:
             "/Foo/Sources/foo/main.swift",
