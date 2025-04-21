@@ -864,7 +864,7 @@ final class ManifestSourceGenerationTests: XCTestCase {
     }
 
     func testDefaultIsolation() async throws {
-        try skipOnWindowsAsTestCurrentlyFails(because: "there are compilation errors")
+        try skipOnWindowsAsTestCurrentlyFails(because: "https://github.com/swiftlang/swift-package-manager/issues/8543: there are compilation errors")
 
         let manifest = Manifest.createRootManifest(
             displayName: "pkg",
