@@ -21,19 +21,7 @@ import struct TSCBasic.FileSystemError
 
 final class UniversalArchiverTests: XCTestCase {
     override func setUp() async throws {
-        let zipAchiver = ZipArchiver(fileSystem: localFileSystem)
-        #if os(Windows)
-            try XCTRequires(executable: zipAchiver.windowsTar)
-        #else
-            try XCTRequires(executable: zipAchiver.unzip)
-            try XCTRequires(executable: zipAchiver.zip)
-        #endif
-        #if os(FreeBSD)
-            try XCTRequires(executable: zipAchiver.tar)
-        #endif
-
-        let tarAchiver = TarArchiver(fileSystem: localFileSystem)
-        try XCTRequires(executable: tarAchiver.tarCommand)
+        try XCTRequiresUniversalArchiver()
     }
 
     func testSuccess() async throws {

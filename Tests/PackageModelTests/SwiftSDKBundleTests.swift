@@ -14,6 +14,7 @@ import Basics
 @_spi(SwiftPMInternal)
 @testable import PackageModel
 import _InternalTestSupport
+import func _InternalTestSupport.XCTRequiresUniversalArchiver
 import XCTest
 
 import struct TSCBasic.ByteString
@@ -137,6 +138,7 @@ private let fixtureSDKsPath = try! AbsolutePath(validating: #file)
 
 final class SwiftSDKBundleTests: XCTestCase {
     func testInstallRemote() async throws {
+        try XCTRequiresUniversalArchiver()
         #if canImport(Darwin) && !os(macOS)
         try XCTSkipIf(true, "skipping test because process launching is not available")
         #endif

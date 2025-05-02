@@ -27,6 +27,9 @@ import struct TSCUtility.Version
 @_exported import func TSCTestSupport.XCTAssertResultSuccess
 @_exported import func TSCTestSupport.XCTAssertThrows
 
+@testable import struct Basics.TarArchiver
+@testable import struct Basics.ZipArchiver
+
 public func XCTAssertFileExists(_ path: AbsolutePath, file: StaticString = #file, line: UInt = #line) {
     TSCTestSupport.XCTAssertFileExists(TSCAbsolutePath(path), file: file, line: line)
 }
@@ -92,13 +95,35 @@ public func XCTRequires(
     file: StaticString = #filePath,
     line: UInt = #line
 ) throws {
-
     do {
         try _requiresTools(executable)
     } catch (let AsyncProcessResult.Error.nonZeroExit(result)) {
         throw XCTSkip(
             "Skipping as tool \(executable) is not found in the path. (\(result.description))")
     }
+}
+
+public func XCTRequiresTarArchiver() throws {
+    let tarAchiver = TarArchiver(fileSystem: localFileSystem)
+    try XCTRequires(executable: tarAchiver.tarCommand)
+}
+
+public func XCTRequiresZipArchiver() throws {
+    let zipAchiver = ZipArchiver(fileSystem: localFileSystem)
+    #if os(Windows)
+        try XCTRequires(executable: zipAchiver.windowsTar)
+    #else
+        try XCTRequires(executable: zipAchiver.unzip)
+        try XCTRequires(executable: zipAchiver.zip)
+    #endif
+    #if os(FreeBSD)
+        try XCTRequires(executable: zipAchiver.tar)
+    #endif
+}
+
+public func XCTRequiresUniversalArchiver() throws {
+    try XCTRequiresZipArchiver()
+    try XCTRequiresTarArchiver()
 }
 
 /// An `async`-friendly replacement for `XCTAssertThrowsError`.

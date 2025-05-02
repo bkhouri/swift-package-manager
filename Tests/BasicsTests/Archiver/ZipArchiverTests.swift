@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 import Basics
-@testable import struct Basics.ZipArchiver
 import _InternalTestSupport
 import XCTest
 import TSCclibc // for SPM_posix_spawn_file_actions_addchdir_np_supported
@@ -20,16 +19,7 @@ import struct TSCBasic.FileSystemError
 
 final class ZipArchiverTests: XCTestCase {
     override func setUp() async throws {
-        let archiver = ZipArchiver(fileSystem: localFileSystem)
-        #if os(Windows)
-            try XCTRequires(executable: archiver.windowsTar)
-        #else
-            try XCTRequires(executable: archiver.unzip)
-            try XCTRequires(executable: archiver.zip)
-        #endif
-        #if os(FreeBSD)
-            try XCTRequires(executable: archiver.tar)
-        #endif
+        try XCTRequiresZipArchiver()
     }
 
     func testZipArchiverSuccess() async throws {
