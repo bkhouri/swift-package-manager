@@ -16,11 +16,12 @@ import _InternalTestSupport
 @testable import SourceControl
 import Testing
 
+@Suite(
+    .bug("https://github.com/swiftlang/swift-package-manager/issues/8564"),
+    .serialized, // because of the listed issue
+)
 struct GitRepositoryProviderTests {
-    @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8564"),
-        .disabled(if: isSelfHostedCiEnvironment && ProcessInfo.hostOperatingSystem == .windows),
-    )
+    @Test
     func isValidDirectory() throws {
         try testWithTemporaryDirectory { sandbox in
             let provider = GitRepositoryProvider()
@@ -50,10 +51,7 @@ struct GitRepositoryProviderTests {
         }
     }
 
-    @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8564"),
-        .disabled(if: isSelfHostedCiEnvironment && ProcessInfo.hostOperatingSystem == .windows),
-    )
+    @Test
     func isValidDirectoryThrowsPrintableError() throws {
         try testWithTemporaryDirectory { temp in
             let provider = GitRepositoryProvider()
@@ -68,10 +66,7 @@ struct GitRepositoryProviderTests {
         }
     }
 
-    @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8564"),
-        .disabled(if: isSelfHostedCiEnvironment && ProcessInfo.hostOperatingSystem == .windows),
-    )
+    @Test
     func gitShellErrorIsPrintable() throws {
         let stdOut = "An error from Git - stdout"
         let stdErr = "An error from Git - stderr"
@@ -97,10 +92,7 @@ struct GitRepositoryProviderTests {
             "Error string '\(errorString)' should contain '\(command)'")
     }
 
-    @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8564"),
-        .disabled(if: isSelfHostedCiEnvironment && ProcessInfo.hostOperatingSystem == .windows),
-    )
+    @Test
     func gitShellErrorEmptyStdOut() throws {
         let stdErr = "An error from Git - stderr"
         let result = AsyncProcessResult(
@@ -117,10 +109,7 @@ struct GitRepositoryProviderTests {
             "Error string '\(errorString)' should contain '\(stdErr)'")
     }
 
-    @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8564"),
-        .disabled(if: isSelfHostedCiEnvironment && ProcessInfo.hostOperatingSystem == .windows),
-    )
+    @Test
     func gitShellErrorEmptyStdErr() throws {
         let stdOut = "An error from Git - stdout"
         let result = AsyncProcessResult(
