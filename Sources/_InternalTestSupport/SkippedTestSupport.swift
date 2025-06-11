@@ -65,6 +65,43 @@ extension Trait where Self == Testing.Bug {
         bug(nil, id: 0, comment)
     }
 }
+
+public enum Relationship: CustomStringConvertible {
+    public var description: String {
+        switch self {
+            case .verifies:
+            return "verifies"
+            case .defect:
+            return "defect"
+        }
+    }
+
+    case verifies
+    case defect
+}
+public enum GitHubRepository {
+
+    case swiftlang_swift_package_manager
+
+    public var description: String {
+        switch self {
+            case .swiftlang_swift_package_manager:
+                return "swiftlang/swift-package-manager"
+        }
+    }
+
+}
+
+extension Trait where Self == Testing.Bug {
+    public static func issue(
+        _ issue: String,
+        relationship: Relationship,
+    ) -> Self {
+
+        bug(nil, id: 0, "\(relationship): \(issue)")
+    }
+}
+
 extension Tag {
     public enum TestSize {}
     public enum Feature {}
