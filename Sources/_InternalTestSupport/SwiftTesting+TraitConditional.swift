@@ -69,4 +69,16 @@ extension Trait where Self == Testing.ConditionTrait {
             #endif
         }
     }
+
+    /// Test required setting ENABLE_TARGET_BASED_DEPENDENCY_RESOLUTION define
+    public static var requiresTargetBasedDependencyResolution: Self {
+        enabled("enabled as target based dependency resolution is defined") {
+            #if ENABLE_TARGET_BASED_DEPENDENCY_RESOLUTION
+                true
+            #else
+                false
+            #endif
+        }
+
+    }
 }

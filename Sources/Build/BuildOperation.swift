@@ -37,8 +37,8 @@ import SwiftDriver
 #endif
 
 package struct LLBuildSystemConfiguration {
-    let toolsBuildParameters: BuildParameters
-    let destinationBuildParameters: BuildParameters
+    fileprivate let toolsBuildParameters: BuildParameters
+    fileprivate let destinationBuildParameters: BuildParameters
 
     let scratchDirectory: AbsolutePath
 
@@ -701,7 +701,7 @@ public final class BuildOperation: PackageStructureDelegate, SPMBuildCore.BuildS
 
         // Create the build plan based on the modules graph and any information from plugins.
         return try await BuildPlan(
-            destinationBuildParameters: self.config.destinationBuildParameters,
+            destinationBuildParameters: self.config.buildParameters(for: .target),
             toolsBuildParameters: self.config.buildParameters(for: .host),
             graph: graph,
             pluginConfiguration: self.pluginConfiguration,

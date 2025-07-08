@@ -285,7 +285,16 @@ public struct ModulesGraph {
 
         return result
     }
+
+    public func getReplProductName() throws -> String {
+        if self.rootPackages.isEmpty {
+            throw StringError("Root package does not exist.")
+        }
+        return self.rootPackages[self.rootPackages.startIndex].identity.description +
+            Product.replProductSuffix
+    }
 }
+
 
 extension PackageGraphError: CustomStringConvertible {
     public var description: String {

@@ -638,6 +638,7 @@ public class BuildPlan: SPMBuildCore.BuildPlan {
     /// Creates arguments required to launch the Swift REPL that will allow
     /// importing the modules in the package graph.
     public func createREPLArguments() throws -> [String] {
+        
         let buildPath = self.toolsBuildParameters.buildPath.pathString
         var arguments = ["repl", "-I" + buildPath, "-L" + buildPath]
 
