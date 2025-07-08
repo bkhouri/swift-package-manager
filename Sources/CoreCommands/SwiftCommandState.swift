@@ -714,7 +714,7 @@ public final class SwiftCommandState {
                 explicitProduct: explicitProduct,
                 forceResolvedVersions: self.options.resolver.forceResolvedVersions,
                 testEntryPointPath: testEntryPointPath,
-                observabilityScope: self.observabilityScope
+                observabilityScope: self.observabilityScope,
             )
 
             // Throw if there were errors when loading the graph.

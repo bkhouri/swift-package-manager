@@ -276,6 +276,67 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
         self.delegate = delegate
     }
 
+
+    private func createREPLArguments(
+        session: SWBBuildServiceSession,
+        request: SWBBuildRequest
+    ) async throws -> CLIArguments {
+        self.outputStream.send("Gathering repl arguments...")
+        self.outputStream.flush()
+
+        func getUniqueBuildSettingsIncludingDependencies(of targetGuid: [SWBConfiguredTarget], buildSettings: [String]) async throws -> Set<String> {
+            let dependencyGraph = try await session.computeDependencyGraph(
+                targetGUIDs: request.configuredTargets.map { SWBTargetGUID(rawValue: $0.guid)},
+                buildParameters: request.parameters,
+                includeImplicitDependencies: true,
+            )
+            var uniquePaths = Set<String>()
+            for setting in buildSettings {
+                self.outputStream.send(".")
+                self.outputStream.flush()
+                for (target, targetDependencies) in dependencyGraph {
+                    for t in [target] + targetDependencies {
+                        try await session.evaluateMacroAsStringList(
+                            setting,
+                            level: .target(t.rawValue),
+                            buildParameters: request.parameters,
+                            overrides: nil,
+                        ).forEach({
+                            uniquePaths.insert($0)
+                        })
+                    }
+                }
+
+            }
+            return uniquePaths
+        }
+
+        // TODO: Need to determine how to get the inlude path of package system library dependencies
+        let includePaths = try await getUniqueBuildSettingsIncludingDependencies(
+            of: request.configuredTargets,
+            buildSettings: [
+                "BUILT_PRODUCTS_DIR",
+                "HEADER_SEARCH_PATHS",
+                "USER_HEADER_SEARCH_PATHS",
+                "FRAMEWORK_SEARCH_PATHS",
+            ]
+        )
+
+        let graph = try await self.getPackageGraph()
+        // Link the special REPL product that contains all of the library targets.
+        let replProductName: String = try graph.getReplProductName()
+
+        // The graph should have the REPL product.
+        assert(graph.product(for: replProductName) != nil)
+
+        let arguments = ["repl", "-l\(replProductName)"] + includePaths.map {
+            "-I\($0)"
+        }
+
+        self.outputStream.send("Done.\n")
+        return arguments
+    }
+
     private func supportedSwiftVersions() throws -> [SwiftLanguageVersion] {
         // Swift Build should support any of the supported language versions of SwiftPM and the rest of the toolchain
         SwiftLanguageVersion.supportedSwiftLanguageVersions
@@ -283,16 +344,30 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
 
     public func build(subset: BuildSubset, buildOutputs: [BuildOutput]) async throws -> BuildResult {
         guard !buildParameters.shouldSkipBuilding else {
-            return BuildResult(serializedDiagnosticPathsByTargetName: .failure(StringError("Building was skipped")))
+            return BuildResult(
+                serializedDiagnosticPathsByTargetName: .failure(StringError("Building was skipped")),
+                packageGraph: try await self.getPackageGraph(),
+                replArguments: nil,
+            )
         }
 
         try await writePIF(buildParameters: buildParameters)
 
-        return try await startSWBuildOperation(pifTargetName: subset.pifTargetName, genSymbolGraph: buildOutputs.contains(.symbolGraph))
+        return try await startSWBuildOperation(
+            pifTargetName: subset.pifTargetName,
+            genSymbolGraph: buildOutputs.contains(.symbolGraph),
+            generateReplArguments: buildOutputs.contains(.replArguments)
+        )
     }
 
-    private func startSWBuildOperation(pifTargetName: String, genSymbolGraph: Bool) async throws -> BuildResult {
+    private func startSWBuildOperation(
+        pifTargetName: String,
+        genSymbolGraph: Bool,
+        generateReplArguments: Bool,
+    ) async throws -> BuildResult {
         let buildStartTime = ContinuousClock.Instant.now
+        // var targetPath = Set<String>()
+        var replArguments: CLIArguments?
 
         return try await withService(connectionMode: .inProcessStatic(swiftbuildServiceEntryPoint)) { service in
             let derivedDataPath = self.buildParameters.dataPath
@@ -431,17 +506,19 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
                         case .taskStarted(let info):
                             try buildState.started(task: info)
 
+                            let msg: String
                             if let commandLineDisplay = info.commandLineDisplayString {
-                                self.observabilityScope.emit(info: "\(info.executionDescription)\n\(commandLineDisplay)")
+                                msg = "\(info.executionDescription)\n\(commandLineDisplay)"
                             } else {
-                                self.observabilityScope.emit(info: "\(info.executionDescription)")
+                                msg = "\(info.executionDescription)"
                             }
+                            self.observabilityScope.emit(info: msg)
 
                             if self.logLevel.isVerbose {
                                 if let commandLineDisplay = info.commandLineDisplayString {
-                                    self.outputStream.send("\(info.executionDescription)\n\(commandLineDisplay)")
+                                    self.outputStream.send("\(info.executionDescription)\n\(commandLineDisplay)\n")
                                 } else {
-                                    self.outputStream.send("\(info.executionDescription)")
+                                    self.outputStream.send("\(info.executionDescription)\n")
                                 }
                             }
                             let targetInfo = try buildState.target(for: info)
@@ -502,6 +579,8 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
                         self.observabilityScope.emit(error: "Unexpected build state")
                         throw Diagnostics.fatalError
                     }
+
+                    replArguments = generateReplArguments ? try await self.createREPLArguments(session: session, request: request) : nil
                 }
             } catch let sessError as SessionFailedError {
                 for diagnostic in sessError.diagnostics {
@@ -512,9 +591,17 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
                 throw error
             }
 
-            return BuildResult(serializedDiagnosticPathsByTargetName: .success(serializedDiagnosticPathsByTargetName), symbolGraph: SymbolGraphResult(outputLocationForTarget: { target, buildParameters in
-                return ["\(buildParameters.triple.archName)", "\(target).symbolgraphs"]
-            }))
+
+            return BuildResult(
+                serializedDiagnosticPathsByTargetName: .success(serializedDiagnosticPathsByTargetName),
+                packageGraph: try await self.getPackageGraph(),
+                symbolGraph: SymbolGraphResult(
+                    outputLocationForTarget: { target, buildParameters in
+                        return ["\(buildParameters.triple.archName)", "\(target).symbolgraphs"]
+                    }
+                ),
+                replArguments: replArguments,
+            )
         }
     }
 

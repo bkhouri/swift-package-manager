@@ -52,7 +52,7 @@ struct SanitierTests {
 }
 
 @Suite(
-    .serialized, // to limit the number of swift executable running.
+    // .serialized, // to limit the number of swift executable running.
     .tags(
         Tag.TestSize.large,
         Tag.Feature.Command.Build,

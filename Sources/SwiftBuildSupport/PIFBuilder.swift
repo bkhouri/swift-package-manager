@@ -227,7 +227,7 @@ public final class PIFBuilder {
     }
 
     /// Constructs a `PIF.TopLevelObject` representing the package graph.
-    private func constructPIF(buildParameters: BuildParameters) async throws -> PIF.TopLevelObject {
+    func constructPIF(buildParameters: BuildParameters) async throws -> PIF.TopLevelObject {
         let pluginScriptRunner = self.parameters.pluginScriptRunner
         let outputDir = self.parameters.pluginWorkingDirectory.appending("outputs")
 

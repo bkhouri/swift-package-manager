@@ -23,7 +23,9 @@ import Workspace
 import Testing
 import Foundation
 
-@Suite(.serialized)
+@Suite(
+    // .serialized,
+)
 final class PluginTests {
     @Test(
         .bug("https://github.com/swiftlang/swift-package-manager/issues/8602"),

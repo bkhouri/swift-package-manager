@@ -39,6 +39,7 @@ public enum BuildSubset {
 /// build systems can produce all possible build outputs. Check the build
 /// result for indication that the output was produced.
 public enum BuildOutput {
+
     case symbolGraph
     // TODO associated values for the following symbol graph options:
     // "-skip-inherited-docs"
@@ -47,6 +48,7 @@ public enum BuildOutput {
     // "-emit-extension-block-symbols"
     // "-emit-synthesized-members"
     case buildPlan
+    case replArguments
 }
 
 /// A protocol that represents a build system used by SwiftPM for all build operations. This allows factoring out the
@@ -91,15 +93,42 @@ public struct SymbolGraphResult {
     public let outputLocationForTarget: (String, BuildParameters) -> [String]
 }
 
+public typealias CLIArguments = [String]
+
+public protocol ModuleInfo {
+    var name: String { get }
+    var path: AbsolutePath { get }
+}
+
+public struct SwiftModuleInfo : ModuleInfo {
+    public let name: String
+    public let path: Basics.AbsolutePath
+}
+public struct ClangModuleInfo : ModuleInfo {
+    public let name: String
+    public let path: Basics.AbsolutePath
+}
+
 public struct BuildResult {
-    package init(serializedDiagnosticPathsByTargetName: Result<[String: [AbsolutePath]], Error>, symbolGraph: SymbolGraphResult? = nil, buildPlan: BuildPlan? = nil) {
+    package init(
+        serializedDiagnosticPathsByTargetName: Result<[String: [AbsolutePath]], Error>,
+        packageGraph: ModulesGraph,
+        symbolGraph: SymbolGraphResult? = nil,
+        buildPlan: BuildPlan? = nil,
+        replArguments: CLIArguments?,
+    ) {
         self.serializedDiagnosticPathsByTargetName = serializedDiagnosticPathsByTargetName
+        self.packageGraph = packageGraph
         self.symbolGraph = symbolGraph
         self.buildPlan = buildPlan
+        self.replArguments = replArguments
     }
     
-    public var symbolGraph: SymbolGraphResult?
-    public var buildPlan: BuildPlan?
+    public let symbolGraph: SymbolGraphResult?
+    public let buildPlan: BuildPlan?
+    public let replArguments: CLIArguments?
+    public let packageGraph: ModulesGraph
+
     public var serializedDiagnosticPathsByTargetName: Result<[String: [AbsolutePath]], Error>
 }
 
