@@ -28,7 +28,7 @@ internal struct RunCommandFactory {
                 do {
                     if let executable,  try RunCommandFactory.isValidSwiftFilePath(fileSystem: fileSystem, path: executable) {
                         returnType = RunModeRunFile()
-                    } 
+                    }
                 } catch {
                     // do nothing
                 }

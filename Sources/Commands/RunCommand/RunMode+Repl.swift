@@ -84,14 +84,13 @@ func createREPLArguments(
         var arguments = ["repl", "-I" + buildPath.pathString, "-L" + buildPath.pathString]
 
         // Link the special REPL product that contains all of the library targets.
-        let replProductName = graph.rootPackages[graph.rootPackages.startIndex].identity.description +
-            Product.replProductSuffix
+        let replProductName = try graph.getReplProductName()
         arguments.append("-l" + replProductName)
 
         // The graph should have the REPL product.
         assert(graph.product(for: replProductName) != nil)
 
-        // Add the search path to the directory containing the modulemap file.
+        // // Add the search path to the directory containing the modulemap file.
         // for target in self.targets {
         //     switch target {
         //     case .swift: break
@@ -102,12 +101,12 @@ func createREPLArguments(
         //     }
         // }
 
-        // Add search paths from the system library targets.
-        for target in graph.reachableModules {
-            if let systemLib = target.underlying as? SystemLibraryModule {
-                // arguments += try self.pkgConfig(for: systemLib).cFlags
-            }
-        }
+        // // Add search paths from the system library targets.
+        // for target in graph.reachableModules {
+        //     if let systemLib = target.underlying as? SystemLibraryModule {
+        //         arguments += try self.pkgConfig(for: systemLib).cFlags
+        //     }
+        // }
         return arguments
 
 }
