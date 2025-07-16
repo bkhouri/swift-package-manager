@@ -470,4 +470,32 @@ struct RunCommandTests {
             #expect(stdout.isEmpty)
         }
     }
+
+    @Suite("Test the swift run --repl")
+    struct ReplTests {
+        @Test(
+            arguments: SupportedBuildSystemOnPlatform, BuildConfiguration.allCases
+        ) func testReplScripts(
+            buildSystem: BuildSystemProvider.Kind,
+            configuration: BuildConfiguration
+        ) async throws {
+            try await fixture(name: "REPL") { fixturePath in
+                let fm = FileManager.default
+                let items = try fm.contentsOfDirectory(atPath: fixturePath.pathString)
+                for item in items {
+                    print("Found \(item)")
+                }
+                #expect(Bool(false), "fixturePath: \(fixturePath), items are \(items)")
+                // try await executeSwiftRun(
+                //     fixturePath, 
+                //     nil,
+                //     configuration: configuration,
+                //     extraArgs: [
+                //         "--repl",
+                //     ],
+                //     buildSystem: buildSystem,
+                // )
+            }
+        }
+    }
 }
