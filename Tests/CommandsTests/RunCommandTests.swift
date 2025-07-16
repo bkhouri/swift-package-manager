@@ -471,30 +471,47 @@ struct RunCommandTests {
         }
     }
 
-    @Suite("Test the swift run --repl")
+    @Suite
     struct ReplTests {
+
+        private func executeSwiftRunRepl(
+            _ args: [String],
+            configuration: BuildConfiguration,
+            buildSystem: BuildSystemProvider.Kind
+        ) async throws -> (stdout: String, stderr: String) {
+            return try await executeSwiftRun(
+                nil,
+                nil,
+                configuration: configuration,
+                extraArgs: [
+                    "--repl"
+                ] + args,
+                buildSystem: buildSystem,
+            )
+        }
+
         @Test(
             arguments: SupportedBuildSystemOnPlatform, BuildConfiguration.allCases
         ) func testReplScripts(
             buildSystem: BuildSystemProvider.Kind,
             configuration: BuildConfiguration
         ) async throws {
-            try await fixture(name: "REPL") { fixturePath in
-                let fm = FileManager.default
-                let items = try fm.contentsOfDirectory(atPath: fixturePath.pathString)
+            try await fixture(name: "REPL", createGitRepo: false) { replFixturePath in
+                let fixturePath = replFixturePath.appending(components: "expectSuccess")
+                // let fm = FileManager.default
+                // let items = try fm.contentsOfDirectory(atPath: fixturePath.pathString)
+                let items = try localFileSystem.getDirectoryContents(fixturePath)
                 for item in items {
-                    print("Found \(item)")
+                    // #expect("Failed to swift run --repl \(fixturePath.appending(item).relative(to: replFixturePath))", throw: Never.self) {
+                        let _ = try await self.executeSwiftRunRepl(
+                            [
+                                item,
+                            ],
+                            configuration: configuration,
+                            buildSystem: buildSystem,
+                        )
+                    // }
                 }
-                #expect(Bool(false), "fixturePath: \(fixturePath), items are \(items)")
-                // try await executeSwiftRun(
-                //     fixturePath, 
-                //     nil,
-                //     configuration: configuration,
-                //     extraArgs: [
-                //         "--repl",
-                //     ],
-                //     buildSystem: buildSystem,
-                // )
             }
         }
     }
