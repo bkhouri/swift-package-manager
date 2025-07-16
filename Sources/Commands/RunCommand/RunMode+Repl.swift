@@ -49,18 +49,22 @@ package struct RunModeRepl: RunCommandProtocol {
         let buildResult = try await buildSystem.build(subset: .allExcludingTests, buildOutputs: [.buildPlan])
             guard let buildPlan = buildResult.buildPlan else {
                 throw ExitCode.failure
-
-
+        }
+        let executableArgs: [String]
+        if let executable = options.executable {
+            executableArgs = [executable]
+        } else {
+            executableArgs = []
         }
         // Execute the REPL.
         let arg = try createREPLArguments(
             buildPath: swiftCommandState.toolsBuildParameters.buildPath,
             graph: graph,
-        )
-        let arguments = try buildPlan.createREPLArguments()
+        ) + executableArgs
+        let arguments = try buildPlan.createREPLArguments() + executableArgs
         print("New args                           : \(arg.joined(separator: " "))")
         print("Launching Swift REPL with arguments: \(arguments.joined(separator: " "))")
-        throw PurposefulError.because
+        // throw PurposefulError.because
         print("Launching Swift REPL with arguments: \(arguments.joined(separator: " "))")
         try self.run(
             fileSystem: swiftCommandState.fileSystem,
