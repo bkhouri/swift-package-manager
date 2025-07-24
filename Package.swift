@@ -630,7 +630,17 @@ let package = Package(
                 "SwiftBuildSupport",
                 "SwiftFixIt",
             ] + swiftSyntaxDependencies(["SwiftIDEUtils"]),
-            exclude: ["CMakeLists.txt", "README.md"],
+            exclude: [
+                "CMakeLists.txt",
+                "README.md",
+                "RunCommand/RunCommandFactory.swift",
+                "RunCommand/RunCommandOptions.swift",
+                "RunCommand/RunCommandProtocol.swift",
+                "RunCommand/RunMode+Debugger.swift",
+                "RunCommand/RunMode+Repl.swift",
+                "RunCommand/RunMode+Run.swift",
+                "RunCommand/SwiftRunCommand.swift",
+            ],
             swiftSettings: swift6CompatibleExperimentalFeatures + [
                 .unsafeFlags(["-static"]),
             ]
