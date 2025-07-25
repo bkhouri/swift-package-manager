@@ -726,7 +726,7 @@ final class ModulesGraphTests: XCTestCase {
 
         testDiagnostics(observability.diagnostics) { result in
             result.check(
-                diagnostic: "multiple packages ('bar', 'foo') declare targets with a conflicting name: 'Bar’; target names need to be unique across the package graph",
+                diagnostic: "multiple packages ('bar', 'foo') declare targets with a conflicting name: 'Bar'; target names need to be unique across the package graph",
                 severity: .error
             )
         }
@@ -793,7 +793,7 @@ final class ModulesGraphTests: XCTestCase {
 
         testDiagnostics(observability.diagnostics) { result in
             result.check(
-                diagnostic: "multiple packages ('first', 'fourth', 'second', 'third') declare targets with a conflicting name: 'First’; target names need to be unique across the package graph",
+                diagnostic: "multiple packages ('first', 'fourth', 'second', 'third') declare targets with a conflicting name: 'First'; target names need to be unique across the package graph",
                 severity: .error
             )
         }
@@ -871,11 +871,11 @@ final class ModulesGraphTests: XCTestCase {
 
         testDiagnostics(observability.diagnostics) { result in
             result.checkUnordered(
-                diagnostic: "multiple packages ('fourth', 'third') declare targets with a conflicting name: 'Bar’; target names need to be unique across the package graph",
+                diagnostic: "multiple packages ('fourth', 'third') declare targets with a conflicting name: 'Bar'; target names need to be unique across the package graph",
                 severity: .error
             )
             result.checkUnordered(
-                diagnostic: "multiple packages ('first', 'second') declare targets with a conflicting name: 'Foo’; target names need to be unique across the package graph",
+                diagnostic: "multiple packages ('first', 'second') declare targets with a conflicting name: 'Foo'; target names need to be unique across the package graph",
                 severity: .error
             )
         }
@@ -951,7 +951,7 @@ final class ModulesGraphTests: XCTestCase {
 
         testDiagnostics(observability.diagnostics) { result in
             result.check(
-                diagnostic: "multiple packages ('first', 'fourth') declare targets with a conflicting name: 'First’; target names need to be unique across the package graph",
+                diagnostic: "multiple packages ('first', 'fourth') declare targets with a conflicting name: 'First'; target names need to be unique across the package graph",
                 severity: .error
             )
         }
@@ -1996,7 +1996,7 @@ final class ModulesGraphTests: XCTestCase {
 
         testDiagnostics(observability.diagnostics) { result in
             result.check(
-                diagnostic: "multiple packages ('dep2', 'start') declare targets with a conflicting name: 'Foo’; target names need to be unique across the package graph",
+                diagnostic: "multiple packages ('dep2', 'start') declare targets with a conflicting name: 'Foo'; target names need to be unique across the package graph",
                 severity: .error
             )
         }
@@ -2053,7 +2053,7 @@ final class ModulesGraphTests: XCTestCase {
         )) { error in
             XCTAssertEqual(
                 (error as? PackageGraphError)?.description,
-                "multiple packages (\'bar\' (at '\(barPkg)'), \'baz\' (at '\(bazPkg)')) declare products with a conflicting name: \'Bar’; product names need to be unique across the package graph"
+                "multiple packages (\'bar\' (at '\(barPkg)'), \'baz\' (at '\(bazPkg)')) declare products with a conflicting name: \'Bar'; product names need to be unique across the package graph"
             )
         }
     }
