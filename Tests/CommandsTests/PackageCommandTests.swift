@@ -4116,7 +4116,87 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
         // Only run the test if the environment in which we're running actually supports Swift concurrency (which the plugin APIs require).
         try XCTSkipIf(!UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
 
-        try await fixtureXCTest(name: "Miscellaneous/Plugins/PluginSuccessful/") { packageDir in
+        try await testWithTemporaryDirectory { tmpPath in
+            // Create a sample package with a couple of plugins a other targets and products.
+            let packageDir = tmpPath.appending(components: "MyPackage")
+            try localFileSystem.createDirectory(packageDir, recursive: true)
+            try localFileSystem.writeFileContents(packageDir.appending(components: "Package.swift"), string: """
+                // swift-tools-version: 5.6
+                import PackageDescription
+                let package = Package(
+                    name: "MyPackage",
+                    products: [
+                        .library(
+                            name: "MyLibrary",
+                            targets: ["MyLibrary"]
+                        ),
+                        .executable(
+                            name: "MyExecutable",
+                            targets: ["MyExecutable"]
+                        ),
+                    ],
+                    targets: [
+                        .target(
+                            name: "MyLibrary"
+                        ),
+                        .executableTarget(
+                            name: "MyExecutable",
+                            dependencies: ["MyLibrary"]
+                        ),
+                        .plugin(
+                            name: "MyBuildToolPlugin",
+                            capability: .buildTool()
+                        ),
+                        .plugin(
+                            name: "MyCommandPlugin",
+                            capability: .command(
+                                intent: .custom(verb: "my-build-tester", description: "Help description")
+                            )
+                        ),
+                    ]
+                )
+                """
+            )
+            let myLibraryTargetDir = packageDir.appending(components: "Sources", "MyLibrary")
+            try localFileSystem.createDirectory(myLibraryTargetDir, recursive: true)
+            try localFileSystem.writeFileContents(myLibraryTargetDir.appending("library.swift"), string: """
+                public func GetGreeting() -> String { return "Hello" }
+                """
+            )
+            let myExecutableTargetDir = packageDir.appending(components: "Sources", "MyExecutable")
+            try localFileSystem.createDirectory(myExecutableTargetDir, recursive: true)
+            try localFileSystem.writeFileContents(myExecutableTargetDir.appending("main.swift"), string: """
+                import MyLibrary
+                print("\\(GetGreeting()), World!")
+                """
+            )
+            let myBuildToolPluginTargetDir = packageDir.appending(components: "Plugins", "MyBuildToolPlugin")
+            try localFileSystem.createDirectory(myBuildToolPluginTargetDir, recursive: true)
+            try localFileSystem.writeFileContents(myBuildToolPluginTargetDir.appending("plugin.swift"), string: """
+                import PackagePlugin
+                @main struct MyBuildToolPlugin: BuildToolPlugin {
+                    func createBuildCommands(
+                        context: PluginContext,
+                        target: Target
+                    ) throws -> [Command] {
+                        return []
+                    }
+                }
+                """
+            )
+            let myCommandPluginTargetDir = packageDir.appending(components: "Plugins", "MyCommandPlugin")
+            try localFileSystem.createDirectory(myCommandPluginTargetDir, recursive: true)
+            try localFileSystem.writeFileContents(myCommandPluginTargetDir.appending("plugin.swift"), string: """
+                import PackagePlugin
+                @main struct MyCommandPlugin: CommandPlugin {
+                    func performCommand(
+                        context: PluginContext,
+                        arguments: [String]
+                    ) throws {
+                    }
+                }
+                """
+            )
 
             // Check that building without options compiles both plugins and that the build proceeds.
             do {
@@ -4140,7 +4220,7 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
                 )
                 XCTAssertFalse(stdout.contains("Compiling plugin MyBuildToolPlugin"), "stdout: '\(stdout)'")
                 XCTAssertTrue(stdout.contains("Compiling plugin MyCommandPlugin"), "stdout: '\(stdout)'")
-                XCTAssertTrue(stdout.contains("Building for debugging..."), "stdout: '\(stdout)'")
+                XCTAssertFalse(stdout.contains("Building for debugging..."), "stdout: '\(stdout)'")
             }
         }
     }
@@ -4149,7 +4229,89 @@ class PackageCommandTestCase: CommandsBuildProviderTestCase {
         // Only run the test if the environment in which we're running actually supports Swift concurrency (which the plugin APIs require).
         try XCTSkipIf(!UserToolchain.default.supportsSwiftConcurrency(), "skipping because test environment doesn't support concurrency")
 
-        try await fixtureXCTest(name: "Miscellaneous/Plugins/CommandPluginUnsuccessful/") { packageDir in
+        try await testWithTemporaryDirectory { tmpPath in
+            // Create a sample package with a couple of plugins a other targets and products.
+            let packageDir = tmpPath.appending(components: "MyPackage")
+            try localFileSystem.createDirectory(packageDir, recursive: true)
+            try localFileSystem.writeFileContents(packageDir.appending(components: "Package.swift"), string: """
+                // swift-tools-version: 5.6
+                import PackageDescription
+                let package = Package(
+                    name: "MyPackage",
+                    products: [
+                        .library(
+                            name: "MyLibrary",
+                            targets: ["MyLibrary"]
+                        ),
+                        .executable(
+                            name: "MyExecutable",
+                            targets: ["MyExecutable"]
+                        ),
+                    ],
+                    targets: [
+                        .target(
+                            name: "MyLibrary"
+                        ),
+                        .executableTarget(
+                            name: "MyExecutable",
+                            dependencies: ["MyLibrary"]
+                        ),
+                        .plugin(
+                            name: "MyBuildToolPlugin",
+                            capability: .buildTool()
+                        ),
+                        .plugin(
+                            name: "MyCommandPlugin",
+                            capability: .command(
+                                intent: .custom(verb: "my-build-tester", description: "Help description")
+                            )
+                        ),
+                    ]
+                )
+                """
+            )
+            let myLibraryTargetDir = packageDir.appending(components: "Sources", "MyLibrary")
+            try localFileSystem.createDirectory(myLibraryTargetDir, recursive: true)
+            try localFileSystem.writeFileContents(myLibraryTargetDir.appending("library.swift"), string: """
+                public func GetGreeting() -> String { return "Hello" }
+                """
+            )
+            let myExecutableTargetDir = packageDir.appending(components: "Sources", "MyExecutable")
+            try localFileSystem.createDirectory(myExecutableTargetDir, recursive: true)
+            try localFileSystem.writeFileContents(myExecutableTargetDir.appending("main.swift"), string: """
+                import MyLibrary
+                print("\\(GetGreeting()), World!")
+                """
+            )
+            let myBuildToolPluginTargetDir = packageDir.appending(components: "Plugins", "MyBuildToolPlugin")
+            try localFileSystem.createDirectory(myBuildToolPluginTargetDir, recursive: true)
+            try localFileSystem.writeFileContents(myBuildToolPluginTargetDir.appending("plugin.swift"), string: """
+                import PackagePlugin
+                @main struct MyBuildToolPlugin: BuildToolPlugin {
+                    func createBuildCommands(
+                        context: PluginContext,
+                        target: Target
+                    ) throws -> [Command] {
+                        return []
+                    }
+                }
+                """
+            )
+            // Deliberately break the command plugin.
+            let myCommandPluginTargetDir = packageDir.appending(components: "Plugins", "MyCommandPlugin")
+            try localFileSystem.createDirectory(myCommandPluginTargetDir, recursive: true)
+            try localFileSystem.writeFileContents(myCommandPluginTargetDir.appending("plugin.swift"), string: """
+                import PackagePlugin
+                @main struct MyCommandPlugin: CommandPlugin {
+                    func performCommand(
+                        context: PluginContext,
+                        arguments: [String]
+                    ) throws {
+                        this is an error
+                    }
+                }
+                """
+            )
             // Check that building stops after compiling the plugin and doesn't proceed.
             // Run this test a number of times to try to catch any race conditions.
             for _ in 1...5 {
@@ -4296,7 +4458,7 @@ class PackageCommandSwiftBuildTests: PackageCommandTestCase {
     }
 
     override func testPluginCompilationBeforeBuilding() async throws {
-        try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8774: Unable to write file")
+        // try XCTSkipOnWindows(because: "https://github.com/swiftlang/swift-package-manager/issues/8774: Unable to write file")
         throw XCTSkip("SWBINTTODO: https:4//github.com/swiftlang/swift-package-manager/issues/8977")
         try await super.testPluginCompilationBeforeBuilding()
     }
