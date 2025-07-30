@@ -1416,7 +1416,7 @@ final class PluginTests {
                 )
             }
 
-            #expect("\(error)".contains("You don't have permission to save the file “generated” in the folder “MyLibrary”."))
+            #expect("\(error)".contains("You don’t have permission to save the file “generated” in the folder “MyLibrary”."))
         }
 
         // Check that the build succeeds if we disable the sandbox.
@@ -1473,8 +1473,8 @@ final class PluginTests {
             try await fixture(name: "Miscellaneous/Plugins") { fixturePath in
                 let (stdout, _) = try await executeSwiftBuild(
                     fixturePath.appending("TransitivePluginOnlyDependency"),
-                buildSystem: .swiftbuild,
-            )
+                    buildSystem: .swiftbuild,
+                )
                 #expect(stdout.contains("Build complete!"), "stdout:\n\(stdout)")
             }
         } when: {
