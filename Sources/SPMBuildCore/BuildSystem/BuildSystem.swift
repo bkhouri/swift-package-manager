@@ -112,13 +112,11 @@ public struct ClangModuleInfo : ModuleInfo {
 public struct BuildResult {
     package init(
         serializedDiagnosticPathsByTargetName: Result<[String: [AbsolutePath]], Error>,
-        packageGraph: ModulesGraph,
         symbolGraph: SymbolGraphResult? = nil,
         buildPlan: BuildPlan? = nil,
         replArguments: CLIArguments?,
     ) {
         self.serializedDiagnosticPathsByTargetName = serializedDiagnosticPathsByTargetName
-        self.packageGraph = packageGraph
         self.symbolGraph = symbolGraph
         self.buildPlan = buildPlan
         self.replArguments = replArguments
@@ -127,7 +125,6 @@ public struct BuildResult {
     public let symbolGraph: SymbolGraphResult?
     public let buildPlan: BuildPlan?
     public let replArguments: CLIArguments?
-    public let packageGraph: ModulesGraph
 
     public var serializedDiagnosticPathsByTargetName: Result<[String: [AbsolutePath]], Error>
 }

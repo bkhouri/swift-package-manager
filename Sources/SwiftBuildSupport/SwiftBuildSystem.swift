@@ -346,7 +346,6 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
         guard !buildParameters.shouldSkipBuilding else {
             return BuildResult(
                 serializedDiagnosticPathsByTargetName: .failure(StringError("Building was skipped")),
-                packageGraph: try await self.getPackageGraph(),
                 replArguments: nil,
             )
         }
@@ -594,7 +593,6 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
 
             return BuildResult(
                 serializedDiagnosticPathsByTargetName: .success(serializedDiagnosticPathsByTargetName),
-                packageGraph: try await self.getPackageGraph(),
                 symbolGraph: SymbolGraphResult(
                     outputLocationForTarget: { target, buildParameters in
                         return ["\(buildParameters.triple.archName)", "\(target).symbolgraphs"]
