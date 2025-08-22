@@ -608,6 +608,7 @@ let package = Package(
                 "Build",
                 "CoreCommands",
                 "PackageGraph",
+                "SbomSupport",
                 "SourceControl",
                 "Workspace",
                 "XCBuildSupport",
@@ -990,6 +991,29 @@ let package = Package(
             name: "package-info",
             dependencies: ["Workspace"],
             path: "Examples/package-info/Sources/package-info"
+        ),
+        .target(
+            name: "SbomSupport",
+            dependencies: [
+                "Basics",
+                "PackageGraph",
+                .product(name: "JSONSchema", package: "swift-json-schema"),
+            ],
+            resources: [
+                .copy("Resources/CycloneDX/bom-1.4.schema.json"),
+            ],
+        ),
+        .testTarget(
+            name: "SbomSupportTests",
+            dependencies: [
+                "Commands",
+                // "Basics",
+                // "PackageLoading",
+                // "PackageModel",
+                // "PackageGraph",
+                "SbomSupport",
+                "_InternalTestSupport",
+            ]
         )
     ],
     swiftLanguageModes: [.v5]
@@ -1110,6 +1134,8 @@ if ProcessInfo.processInfo.environment["SWIFTCI_USE_LOCAL_DEPS"] == nil {
         .package(url: "https://github.com/swiftlang/swift-toolchain-sqlite.git", from: "1.0.0"),
         // For use in previewing documentation
         .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.1.0"),
+        // For JSON Schema validation in SBOM generation
+        .package(url: "https://github.com/ajevans99/swift-json-schema.git", exact: "0.9.0"),
     ]
     if !swiftDriverDeps.isEmpty {
         package.dependencies += [

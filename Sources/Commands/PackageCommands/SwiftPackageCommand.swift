@@ -72,6 +72,7 @@ public struct SwiftPackageCommand: AsyncParsableCommand {
             CompletionCommand.self,
             PluginCommand.self,
 
+            SBomCommand.self,
             DefaultCommand.self,
         ]
             + (ProcessInfo.processInfo.environment["SWIFTPM_ENABLE_SNIPPETS"] == "1" ? [Learn.self] : []),

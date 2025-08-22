@@ -32,6 +32,7 @@ extension Tag.Feature {
     @Tag public static var Mirror: Tag
     @Tag public static var NetRc: Tag
     @Tag public static var Resource: Tag
+    @Tag public static var Sbom: Tag
     @Tag public static var SpecialCharacters: Tag
     @Tag public static var Traits: Tag
 
@@ -67,6 +68,7 @@ extension Tag.Feature.Command.Package {
     @Tag public static var Plugin: Tag
     @Tag public static var Reset: Tag
     @Tag public static var Resolve: Tag
+    @Tag public static var Sbom: Tag
     @Tag public static var ShowDependencies: Tag
     @Tag public static var ShowExecutables: Tag
     @Tag public static var ToolsVersion: Tag
