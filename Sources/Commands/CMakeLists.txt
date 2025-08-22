@@ -29,6 +29,7 @@ add_library(Commands
   PackageCommands/PluginCommand.swift
   PackageCommands/ResetCommands.swift
   PackageCommands/Resolve.swift
+  PackageCommands/SbomCommand.swift
   PackageCommands/ShowDependencies.swift
   PackageCommands/ShowExecutables.swift
   PackageCommands/SwiftPackageCommand.swift
