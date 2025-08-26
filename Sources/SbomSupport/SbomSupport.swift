@@ -1,4 +1,5 @@
 //===----------------------------------------------------------------------===//
+ //===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift open source project
 //
@@ -17,6 +18,7 @@ import JSONSchema
 import Basics
 import PackageGraph
 import PackageModel
+import SourceControl
 
 // import class TSCBasic.LocalFileOutputByteStream
 // import protocol TSCBasic.OutputByteStream
@@ -180,16 +182,107 @@ internal func extractLicenseFromReadme(_ content: String) -> String? {
     return nil
 }
 
+/// Extracts HEAD commit information from a Git repository
+internal func extractHeadCommitInfo(from package: ResolvedPackage, fileSystem: FileSystem = localFileSystem) -> SBOMCommit? {
+    // Check if the package path is a Git repository
+    guard fileSystem.exists(package.path.appending(".git")) else {
+        return nil
+    }
+    
+    do {
+        let gitRepo = GitRepository(path: package.path)
+        
+        // Get current revision (HEAD commit hash)
+        let currentRevision = try gitRepo.getCurrentRevision()
+        
+        // Use AsyncProcess directly to get commit details since callGit is private
+        let process = AsyncProcess(
+            arguments: ["git", "-C", package.path.pathString, "log", "-1", "--format=%H|%an|%ae|%ai|%s", currentRevision.identifier],
+            environment: .current,
+            outputRedirection: .collect
+        )
+        
+        try process.launch()
+        let result = try process.waitUntilExit()
+        
+        guard result.exitStatus == .terminated(code: 0) else {
+            return nil
+        }
+        
+        let commitInfo = try result.utf8Output().spm_chomp()
+        let parts = commitInfo.split(separator: "|", maxSplits: 4)
+        guard parts.count == 5 else {
+            return nil
+        }
+        
+        let commitHash = String(parts[0])
+        let authorName = String(parts[1])
+        let authorEmail = String(parts[2])
+        let timestamp = String(parts[3])
+        let message = String(parts[4])
+        
+        return SBOMCommit(
+            uid: commitHash,
+            url: nil, // We don't have the remote URL context here
+            author: SBOMIdentifiableAction(
+                timestamp: timestamp,
+                name: authorName,
+                email: authorEmail
+            ),
+            committer: nil, // Could be added if needed
+            message: message
+        )
+        
+    } catch {
+        // If we can't get Git information, return nil
+        return nil
+    }
+}
+
 package func generateSBOM(from graph: ModulesGraph) throws -> SBOMDocument {
     guard let rootPackage = graph.rootPackages.first else {
         throw StringError("No root package found")
     }
 
     var components: [SBOMComponent] = []
+    var allDependencyPackages: Set<PackageIdentity> = []
+
+    // Collect all transitive dependencies recursively
+    func collectAllDependencies(from package: ResolvedPackage, visited: inout Set<PackageIdentity>) {
+        let directDeps = graph.directDependencies(for: package)
+        for dependencyPackage in directDeps {
+            if !visited.contains(dependencyPackage.identity) {
+                visited.insert(dependencyPackage.identity)
+                allDependencyPackages.insert(dependencyPackage.identity)
+                
+                // Recursively collect transitive dependencies
+                collectAllDependencies(from: dependencyPackage, visited: &visited)
+            }
+        }
+    }
+
+    // Collect all dependencies starting from root packages
+    var visited: Set<PackageIdentity> = []
+    for rootPkg in graph.rootPackages {
+        collectAllDependencies(from: rootPkg, visited: &visited)
+    }
 
     // Add root package as a component
     let rootVersion = rootPackage.manifest.version?.description ?? "unknown"
     let rootLicenses = extractLicenseInformation(from: rootPackage)
+    let rootPedigree: SBOMPedigree? = if rootVersion == "unknown", let commit = extractHeadCommitInfo(from: rootPackage) {
+        SBOMPedigree(
+            ancestors: nil,
+            descendants: nil,
+            variants: nil,
+            commits: [commit],
+            patches: nil,
+            notes: "HEAD commit information for package without version"
+        )
+    } else {
+        nil
+    }
+    
     components.append(
         SBOMComponent(
             type: .library,
@@ -197,41 +290,80 @@ package func generateSBOM(from graph: ModulesGraph) throws -> SBOMDocument {
             name: rootPackage.identity.description,
             version: rootVersion,
             scope: "required",
-            licenses: rootLicenses
+            licenses: rootLicenses,
+            pedigree: rootPedigree
         )
     )
 
-    // Add all dependencies as components
-    for package in graph.packages {
-        if package.identity != rootPackage.identity {
+    // Add all dependency packages as components (both direct and transitive)
+    for dependencyId in allDependencyPackages {
+        if let package = graph.package(for: dependencyId) {
             let packageVersion = package.manifest.version?.description ?? "unknown"
             let packageLicenses = extractLicenseInformation(from: package)
+            
+            // Determine if this is a direct or transitive dependency
+            let isDirectDependency = graph.rootPackages.contains { rootPkg in
+                graph.directDependencies(for: rootPkg).contains { $0.identity == dependencyId }
+            }
+            let scope = isDirectDependency ? "required" : "optional"
+            
+            let packagePedigree: SBOMPedigree? = if packageVersion == "unknown", let commit = extractHeadCommitInfo(from: package) {
+                SBOMPedigree(
+                    ancestors: nil,
+                    descendants: nil,
+                    variants: nil,
+                    commits: [commit],
+                    patches: nil,
+                    notes: "HEAD commit information for package without version"
+                )
+            } else {
+                nil
+            }
+            
             components.append(
                 SBOMComponent(
                     type: .library,
                     bomRef: package.identity.description,
                     name: package.identity.description,
                     version: packageVersion,
-                    scope: "required",
-                    licenses: packageLicenses
+                    scope: scope,
+                    licenses: packageLicenses,
+                    pedigree: packagePedigree
                 )
             )
         }
     }
 
-    // Create dependency relationships
+    // Create dependency relationships for all packages (root + dependencies)
     var dependencies: [SBOMDependency] = []
-    for package in graph.packages {
-        let packageDeps = package.dependencies.map { dep in
-            dep.description
-        }
-        if !packageDeps.isEmpty {
+    
+    // Add root package dependencies
+    for rootPkg in graph.rootPackages {
+        let directDeps = graph.directDependencies(for: rootPkg)
+        let rootDeps = directDeps.map { $0.identity.description }
+        if !rootDeps.isEmpty {
             dependencies.append(
                 SBOMDependency(
-                    ref: package.identity.description,
-                    dependsOn: packageDeps
+                    ref: rootPkg.identity.description,
+                    dependsOn: rootDeps
                 )
             )
+        }
+    }
+    
+    // Add dependencies for all dependency packages
+    for dependencyId in allDependencyPackages {
+        if let package = graph.package(for: dependencyId) {
+            let directDeps = graph.directDependencies(for: package)
+            let packageDeps = directDeps.map { $0.identity.description }
+            if !packageDeps.isEmpty {
+                dependencies.append(
+                    SBOMDependency(
+                        ref: package.identity.description,
+                        dependsOn: packageDeps
+                    )
+                )
+            }
         }
     }
 
@@ -256,6 +388,7 @@ package func generateSBOM(from graph: ModulesGraph) throws -> SBOMDocument {
                 version: rootVersion,
                 scope: "required",
                 licenses: rootLicenses,
+                pedigree: rootPedigree
             )
         ),
         components: components,

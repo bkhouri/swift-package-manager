@@ -30,6 +30,7 @@ package struct SBOMComponent: Codable, Equatable {
     package let data: [SBOMData]?
     package let components: [SBOMComponent]?
     package let licenses: [SBOMLicenseChoice]?
+    package let pedigree: SBOMPedigree?
 
     package init(
         type: SBOMType,
@@ -39,7 +40,8 @@ package struct SBOMComponent: Codable, Equatable {
         scope: String,
         data: [SBOMData]? = nil,
         components: [SBOMComponent]? = nil,
-        licenses: [SBOMLicenseChoice]? = nil
+        licenses: [SBOMLicenseChoice]? = nil,
+        pedigree: SBOMPedigree? = nil
     ) {
         self.type = type
         self.bomRef = bomRef
@@ -49,6 +51,7 @@ package struct SBOMComponent: Codable, Equatable {
         self.data = data
         self.components = components
         self.licenses = licenses
+        self.pedigree = pedigree
     }
     
     private enum CodingKeys: String, CodingKey {
@@ -60,5 +63,6 @@ package struct SBOMComponent: Codable, Equatable {
         case data
         case components
         case licenses
+        case pedigree
     }
 }

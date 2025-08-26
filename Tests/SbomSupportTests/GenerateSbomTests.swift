@@ -19,6 +19,8 @@ import PackageModel
 import Testing
 import _InternalTestSupport
 
+import struct TSCUtility.Version
+
 @Suite(
     .tags(
         .TestSize.small,
@@ -249,4 +251,289 @@ struct GenerateSBOMTests {
             try generateSBOM(from: graph)
         }
     }
+    // MARK: - Transitive Dependencies Tests
+    
+    @Test
+    func withTransitiveDependencies_simpleChain() throws {
+        // Create a dependency chain: MyApp -> NetworkingLib -> CryptoLib
+        let graph = try createMockModulesGraphWithTransitiveDeps(
+            rootPackageName: "MyApp",
+            rootPackageVersion: "1.0.0",
+            dependencyChain: [
+                ("NetworkingLib", "2.0.0", [("CryptoLib", "1.5.0", [])])
+            ]
+        )
+        
+        let sbom = try generateSBOM(from: graph)
+        
+        // Verify all components are included (root + direct + transitive)
+        let components = try #require(sbom.components)
+        #expect(components.count == 3) // MyApp + NetworkingLib + CryptoLib
+        
+        let componentNames = Set(components.map { $0.name })
+        #expect(componentNames.contains("myapp"))
+        #expect(componentNames.contains("networkinglib"))
+        #expect(componentNames.contains("cryptolib"))
+        
+        // Verify scope classification
+        let myAppComponent = components.first { $0.name == "myapp" }!
+        #expect(myAppComponent.scope == "required")
+        
+        let networkingComponent = components.first { $0.name == "networkinglib" }!
+        #expect(networkingComponent.scope == "required") // Direct dependency
+        
+        let cryptoComponent = components.first { $0.name == "cryptolib" }!
+        #expect(cryptoComponent.scope == "optional") // Transitive dependency
+        
+        // Verify dependency relationships
+        let dependencies = try #require(sbom.dependencies)
+        #expect(dependencies.count == 2) // MyApp and NetworkingLib have dependencies
+        
+        // MyApp depends on NetworkingLib
+        let myAppDeps = dependencies.first { $0.ref == "myapp" }!
+        #expect(myAppDeps.dependsOn.contains("networkinglib"))
+        #expect(myAppDeps.dependsOn.count == 1)
+        
+        // NetworkingLib depends on CryptoLib
+        let networkingDeps = dependencies.first { $0.ref == "networkinglib" }!
+        #expect(networkingDeps.dependsOn.contains("cryptolib"))
+        #expect(networkingDeps.dependsOn.count == 1)
+    }
+    
+    @Test
+    func withTransitiveDependencies_complexGraph() throws {
+        // Create a more complex dependency graph:
+        // MyApp -> [NetworkingLib, LoggingLib]
+        // NetworkingLib -> [CryptoLib, UtilsLib]
+        // LoggingLib -> [UtilsLib] (shared transitive dependency)
+        let graph = try createMockModulesGraphWithTransitiveDeps(
+            rootPackageName: "MyApp",
+            rootPackageVersion: "1.0.0",
+            dependencyChain: [
+                ("NetworkingLib", "2.0.0", [
+                    ("CryptoLib", "1.5.0", []),
+                    ("UtilsLib", "3.0.0", [])
+                ]),
+                ("LoggingLib", "1.2.0", [
+                    ("UtilsLib", "3.0.0", [])
+                ])
+            ]
+        )
+        
+        let sbom = try generateSBOM(from: graph)
+        
+        // Verify all components are included
+        let components = try #require(sbom.components)
+        #expect(components.count == 5) // MyApp + NetworkingLib + LoggingLib + CryptoLib + UtilsLib
+        
+        let componentNames = Set(components.map { $0.name })
+        #expect(componentNames.contains("myapp"))
+        #expect(componentNames.contains("networkinglib"))
+        #expect(componentNames.contains("logginglib"))
+        #expect(componentNames.contains("cryptolib"))
+        #expect(componentNames.contains("utilslib"))
+        
+        // Verify scope classification
+        let directDeps = ["networkinglib", "logginglib"]
+        let transitiveDeps = ["cryptolib", "utilslib"]
+        
+        for component in components {
+            if component.name == "myapp" {
+                #expect(component.scope == "required")
+            } else if directDeps.contains(component.name) {
+                #expect(component.scope == "required", "Direct dependency \(component.name) should have 'required' scope")
+            } else if transitiveDeps.contains(component.name) {
+                #expect(component.scope == "optional", "Transitive dependency \(component.name) should have 'optional' scope")
+            }
+        }
+        
+        // Verify dependency relationships include all packages
+        let dependencies = try #require(sbom.dependencies)
+        #expect(dependencies.count == 3) // MyApp, NetworkingLib, and LoggingLib have dependencies
+        
+        // Verify MyApp's direct dependencies
+        let myAppDeps = dependencies.first { $0.ref == "myapp" }!
+        #expect(myAppDeps.dependsOn.contains("networkinglib"))
+        #expect(myAppDeps.dependsOn.contains("logginglib"))
+        #expect(myAppDeps.dependsOn.count == 2)
+    }
+    
+    @Test
+    func withTransitiveDependencies_deepChain() throws {
+        // Create a deep dependency chain: MyApp -> A -> B -> C -> D
+        let graph = try createMockModulesGraphWithTransitiveDeps(
+            rootPackageName: "MyApp",
+            rootPackageVersion: "1.0.0",
+            dependencyChain: [
+                ("LibA", "1.0.0", [
+                    ("LibB", "2.0.0", [
+                        ("LibC", "3.0.0", [
+                            ("LibD", "4.0.0", [])
+                        ])
+                    ])
+                ])
+            ]
+        )
+        
+        let sbom = try generateSBOM(from: graph)
+        
+        // Verify all components in the chain are included
+        let components = try #require(sbom.components)
+        #expect(components.count == 5) // MyApp + LibA + LibB + LibC + LibD
+        
+        let componentNames = Set(components.map { $0.name })
+        #expect(componentNames.contains("myapp"))
+        #expect(componentNames.contains("liba"))
+        #expect(componentNames.contains("libb"))
+        #expect(componentNames.contains("libc"))
+        #expect(componentNames.contains("libd"))
+        
+        // Verify scope classification - only LibA should be direct (required)
+        for component in components {
+            if component.name == "myapp" {
+                #expect(component.scope == "required")
+            } else if component.name == "liba" {
+                #expect(component.scope == "required", "Direct dependency LibA should have 'required' scope")
+            } else {
+                #expect(component.scope == "optional", "Transitive dependency \(component.name) should have 'optional' scope")
+            }
+        }
+        
+        // Verify complete dependency chain is represented
+        let dependencies = try #require(sbom.dependencies)
+        #expect(dependencies.count == 4) // All packages except LibD have dependencies
+        
+        // Verify the chain: MyApp -> LibA -> LibB -> LibC -> LibD
+        let myAppDeps = dependencies.first { $0.ref == "myapp" }!
+        #expect(myAppDeps.dependsOn == ["liba"])
+        
+        let libADeps = dependencies.first { $0.ref == "liba" }!
+        #expect(libADeps.dependsOn == ["libb"])
+        
+        let libBDeps = dependencies.first { $0.ref == "libb" }!
+        #expect(libBDeps.dependsOn == ["libc"])
+        
+        let libCDeps = dependencies.first { $0.ref == "libc" }!
+        #expect(libCDeps.dependsOn == ["libd"])
+    }
+    
+    @Test
+    func withTransitiveDependencies_noDuplicates() throws {
+        // Test that shared transitive dependencies are not duplicated
+        // MyApp -> [LibA, LibB]
+        // LibA -> SharedLib
+        // LibB -> SharedLib (same shared dependency)
+        let graph = try createMockModulesGraphWithTransitiveDeps(
+            rootPackageName: "MyApp",
+            rootPackageVersion: "1.0.0",
+            dependencyChain: [
+                ("LibA", "1.0.0", [("SharedLib", "2.0.0", [])]),
+                ("LibB", "1.0.0", [("SharedLib", "2.0.0", [])])
+            ]
+        )
+        
+        let sbom = try generateSBOM(from: graph)
+        
+        // Verify SharedLib appears only once
+        let components = try #require(sbom.components)
+        #expect(components.count == 4) // MyApp + LibA + LibB + SharedLib (no duplicates)
+        
+        let sharedLibComponents = components.filter { $0.name == "sharedlib" }
+        #expect(sharedLibComponents.count == 1, "SharedLib should appear exactly once")
+        
+        // Verify SharedLib is marked as transitive (optional)
+        let sharedLibComponent = sharedLibComponents.first!
+        #expect(sharedLibComponent.scope == "optional")
+    }
+}
+
+// MARK: - Enhanced Helper Functions
+
+/// Creates a mock ModulesGraph with transitive dependencies
+private func createMockModulesGraphWithTransitiveDeps(
+    rootPackageName: String,
+    rootPackageVersion: String,
+    dependencyChain: [(name: String, version: String, dependencies: [(name: String, version: String, dependencies: [(name: String, version: String, dependencies: Any)])])]
+) throws -> ModulesGraph {
+    var allPackages: [(name: String, version: String, dependencies: [String])] = []
+    var processedPackages: Set<String> = []
+    
+    // Flatten the dependency chain into a list of packages with their direct dependencies
+    func processDependency(_ name: String, _ version: String, _ deps: [(name: String, version: String, dependencies: Any)]) {
+        if processedPackages.contains(name) {
+            return // Avoid duplicates
+        }
+        processedPackages.insert(name)
+        
+        let directDeps = deps.map { $0.name }
+        allPackages.append((name: name, version: version, dependencies: directDeps))
+        
+        // Recursively process transitive dependencies
+        for dep in deps {
+            if let transitiveDeps = dep.dependencies as? [(name: String, version: String, dependencies: [(name: String, version: String, dependencies: Any)])] {
+                processDependency(dep.name, dep.version, transitiveDeps)
+            } else if let transitiveDeps = dep.dependencies as? [(name: String, version: String, dependencies: Any)] {
+                processDependency(dep.name, dep.version, transitiveDeps)
+            }
+        }
+    }
+    
+    // Process all dependencies starting from the root
+    let rootDirectDeps = dependencyChain.map { $0.name }
+    allPackages.append((name: rootPackageName, version: rootPackageVersion, dependencies: rootDirectDeps))
+    
+    for rootDep in dependencyChain {
+        processDependency(rootDep.name, rootDep.version, rootDep.dependencies)
+    }
+    
+    // Create file system with proper source file structure
+    var emptyFiles: [String] = []
+    
+    // Add source files for all packages
+    for pkg in allPackages {
+        emptyFiles.append("/\(pkg.name)/Sources/\(pkg.name)/\(pkg.name).swift")
+    }
+    
+    let fs = InMemoryFileSystem(emptyFiles: emptyFiles)
+    
+    // Create manifests for all packages
+    var manifests: [Manifest] = []
+    
+    // Create root package manifest
+    let rootManifest = Manifest.createRootManifest(
+        displayName: rootPackageName,
+        path: "/\(rootPackageName)",
+        version: Version(rootPackageVersion)!,
+        toolsVersion: .v5_5,
+        dependencies: rootDirectDeps.map { .fileSystem(path: "/\($0)") },
+        targets: [
+            try TargetDescription(name: rootPackageName)
+        ]
+    )
+    manifests.append(rootManifest)
+    
+    // Create dependency manifests
+    for pkg in allPackages where pkg.name != rootPackageName {
+        let depManifest = Manifest.createFileSystemManifest(
+            displayName: pkg.name,
+            path: "/\(pkg.name)",
+            version: Version(pkg.version)!,
+            toolsVersion: .v5_5,
+            dependencies: pkg.dependencies.map { .fileSystem(path: "/\($0)") },
+            products: [
+                try ProductDescription(name: pkg.name, type: .library(.automatic), targets: [pkg.name])
+            ],
+            targets: [
+                try TargetDescription(name: pkg.name)
+            ]
+        )
+        manifests.append(depManifest)
+    }
+    
+    let observability = ObservabilitySystem.makeForTesting()
+    return try loadModulesGraph(
+        fileSystem: fs,
+        manifests: manifests,
+        observabilityScope: observability.topScope
+    )
 }
