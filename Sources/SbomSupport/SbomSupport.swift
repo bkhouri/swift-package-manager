@@ -263,7 +263,7 @@ internal func createPedigreeWithHeadCommit(from package: ResolvedPackage, fileSy
     )
 }
 
-package func generateSBOM(from graph: ModulesGraph) throws -> SBOMDocument {
+package func generateSBOM(from graph: ModulesGraph, filteredModules: [ResolvedModule]? = nil) throws -> SBOMDocument {
     guard let rootPackage = graph.rootPackages.first else {
         throw StringError("No root package found")
     }
@@ -271,24 +271,37 @@ package func generateSBOM(from graph: ModulesGraph) throws -> SBOMDocument {
     var components: [SBOMComponent] = []
     var allDependencyPackages: Set<PackageIdentity> = []
 
-    // Collect all transitive dependencies recursively
-    func collectAllDependencies(from package: ResolvedPackage, visited: inout Set<PackageIdentity>) {
-        let directDeps = graph.directDependencies(for: package)
-        for dependencyPackage in directDeps {
-            if !visited.contains(dependencyPackage.identity) {
-                visited.insert(dependencyPackage.identity)
-                allDependencyPackages.insert(dependencyPackage.identity)
-                
-                // Recursively collect transitive dependencies
-                collectAllDependencies(from: dependencyPackage, visited: &visited)
+    // If we have filtered modules (from a specific subset), use those to determine dependencies
+    if let filteredModules = filteredModules {
+        // Extract package identities from the filtered modules, excluding the root package
+        for module in filteredModules {
+            let packageIdentity = graph.package(for: module)?.identity
+            if let packageIdentity = packageIdentity, packageIdentity != rootPackage.identity {
+                allDependencyPackages.insert(packageIdentity)
             }
         }
-    }
+    } else {
+        // Fallback to original behavior: collect all transitive dependencies recursively
+        func collectAllDependencies(from package: ResolvedPackage, visited: inout Set<PackageIdentity>) {
+            let directDeps = graph.directDependencies(for: package)
+            print("DEBUG: Package \(package.identity) has \(directDeps.count) direct dependencies: \(directDeps.map { $0.identity })")
+            for dependencyPackage in directDeps {
+                if !visited.contains(dependencyPackage.identity) {
+                    visited.insert(dependencyPackage.identity)
+                    allDependencyPackages.insert(dependencyPackage.identity)
+                    print("DEBUG: Added dependency \(dependencyPackage.identity) to allDependencyPackages")
+                    
+                    // Recursively collect transitive dependencies
+                    collectAllDependencies(from: dependencyPackage, visited: &visited)
+                }
+            }
+        }
 
-    // Collect all dependencies starting from root packages
-    var visited: Set<PackageIdentity> = []
-    for rootPkg in graph.rootPackages {
-        collectAllDependencies(from: rootPkg, visited: &visited)
+        // Collect all dependencies starting from root packages
+        var visited: Set<PackageIdentity> = []
+        for rootPkg in graph.rootPackages {
+            collectAllDependencies(from: rootPkg, visited: &visited)
+        }
     }
 
     // Add root package as a component
@@ -568,6 +581,14 @@ package func outputSBOM(
     outputPath: AbsolutePath?,
     fileSystem: FileSystem,
 ) throws {
+
+    // Validate the generated JSON against the schema
+    try validateSBOMJSON(
+        JSONEncoder().encode(sbom),
+        specification: specification,
+        fileSystem: fileSystem,
+    )
+
 
     let dataToEncode: Codable
     switch specification {

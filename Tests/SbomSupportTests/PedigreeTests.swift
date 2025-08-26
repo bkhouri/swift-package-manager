@@ -23,7 +23,7 @@ import struct TSCUtility.Version
 
 @Suite(
     .tags(
-        .TestSize.small,
+        .TestSize.large,
         .Feature.Sbom,
     ),
 )
@@ -43,7 +43,7 @@ struct PedigreeTests {
             try gitInitProcess.launch()
             _ = try gitInitProcess.waitUntilExit()
             
-            // Configure git user
+            // Configure git user (author)
             let configNameProcess = AsyncProcess(
                 arguments: ["git", "config", "user.name", "SBOM Test"],
                 environment: .current,
@@ -78,7 +78,7 @@ struct PedigreeTests {
             _ = try addProcess.waitUntilExit()
             
             let commitProcess = AsyncProcess(
-                arguments: ["git", "commit", "-m", "Initial app commit"],
+                arguments: ["git", "-c", "user.name=SBOM Committer", "-c", "user.email=committer@test.com", "commit", "-m", "Initial app commit"],
                 environment: .current,
                 workingDirectory: tempDir,
                 outputRedirection: .collect
@@ -100,7 +100,7 @@ struct PedigreeTests {
         
         // Verify the root component has pedigree information
         let components = try #require(sbom.components)
-        let rootComponent = components.first { $0.name == "testapp" }!
+        let rootComponent = try #require(components.first { $0.version == "unknown" }, "Should find a component with unknown version")
         #expect(rootComponent.version == "unknown")
         
         let pedigree = try #require(rootComponent.pedigree)
@@ -113,6 +113,8 @@ struct PedigreeTests {
         #expect(commit.uid != nil)
         #expect(commit.author?.name == "SBOM Test")
         #expect(commit.author?.email == "sbom@test.com")
+        #expect(commit.committer?.name == "SBOM Committer")
+        #expect(commit.committer?.email == "committer@test.com")
         #expect(commit.message == "Initial app commit")
     }
     
@@ -159,7 +161,7 @@ struct PedigreeTests {
         
         // Verify the root component does NOT have pedigree information
         let components = try #require(sbom.components)
-        let rootComponent = components.first { $0.name == "testapp" }!
+        let rootComponent = try #require(components.first { $0.version == "1.0.0" }, "Should find a component with version 1.0.0")
         #expect(rootComponent.version == "1.0.0")
         #expect(rootComponent.pedigree == nil)
     }
@@ -178,7 +180,7 @@ struct PedigreeTests {
             try gitInitProcess.launch()
             _ = try gitInitProcess.waitUntilExit()
             
-            // Configure git user
+            // Configure git user (author)
             let configNameProcess = AsyncProcess(
                 arguments: ["git", "config", "user.name", "Dep Author"],
                 environment: .current,
@@ -213,7 +215,7 @@ struct PedigreeTests {
             _ = try addProcess.waitUntilExit()
             
             let commitProcess = AsyncProcess(
-                arguments: ["git", "commit", "-m", "Git dependency commit"],
+                arguments: ["git", "-c", "user.name=Dep Committer", "-c", "user.email=depcommitter@example.com", "commit", "-m", "Git dependency commit"],
                 environment: .current,
                 workingDirectory: tempDir,
                 outputRedirection: .collect
@@ -237,12 +239,12 @@ struct PedigreeTests {
         let components = try #require(sbom.components)
         
         // Root component has known version - no pedigree
-        let rootComponent = components.first { $0.name == "testapp" }!
+        let rootComponent = try #require(components.first { $0.version == "1.0.0" }, "Should find root component with version 1.0.0")
         #expect(rootComponent.version == "1.0.0")
         #expect(rootComponent.pedigree == nil)
         
         // Git dependency has unknown version - should have pedigree
-        let gitDepComponent = components.first { $0.name == "gitdep" }!
+        let gitDepComponent = try #require(components.first { $0.version == "unknown" }, "Should find git dependency with unknown version")
         #expect(gitDepComponent.version == "unknown")
         let pedigree = try #require(gitDepComponent.pedigree)
         #expect(pedigree.notes == "HEAD commit information for package without version")
@@ -251,6 +253,9 @@ struct PedigreeTests {
         #expect(commits.count == 1)
         let commit = commits.first!
         #expect(commit.author?.name == "Dep Author")
+        #expect(commit.author?.email == "dep@example.com")
+        #expect(commit.committer?.name == "Dep Committer")
+        #expect(commit.committer?.email == "depcommitter@example.com")
         #expect(commit.message == "Git dependency commit")
     }
     
@@ -266,9 +271,9 @@ struct PedigreeTests {
                 email: "john@example.com"
             ),
             committer: SBOMIdentifiableAction(
-                timestamp: "2025-01-01T12:05:00Z",
-                name: "Jane Smith",
-                email: "jane@example.com"
+                timestamp: "2025-01-01T12:10:00Z",
+                name: "Jane Committer",
+                email: "janecommitter@example.com"
             ),
             message: "Fix critical bug"
         )
@@ -300,7 +305,10 @@ struct PedigreeTests {
         #expect(decodedCommit?.message == commit.message)
         #expect(decodedCommit?.author?.name == commit.author?.name)
         #expect(decodedCommit?.author?.email == commit.author?.email)
+        #expect(decodedCommit?.author?.timestamp == commit.author?.timestamp)
         #expect(decodedCommit?.committer?.name == commit.committer?.name)
+        #expect(decodedCommit?.committer?.email == commit.committer?.email)
+        #expect(decodedCommit?.committer?.timestamp == commit.committer?.timestamp)
     }
 }
 

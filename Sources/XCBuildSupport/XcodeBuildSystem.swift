@@ -164,6 +164,7 @@ public final class XcodeBuildSystem: SPMBuildCore.BuildSystem {
         let buildResult = BuildResult(
             serializedDiagnosticPathsByTargetName: .failure(StringError("XCBuild does not support reporting serialized diagnostics.")),
             replArguments: nil,
+            sbom: nil,
         )
 
         guard !buildParameters.shouldSkipBuilding else {

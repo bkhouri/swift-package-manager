@@ -61,14 +61,7 @@ extension SwiftPackageCommand {
             let fs = swiftCommandState.fileSystem
 
             // Generate the SBOM
-            let sbom = try generateSBOM(from: graph)
-
-            // Validate the generated JSON against the schema
-            try validateSBOMJSON(
-                JSONEncoder().encode(sbom),
-                specification: sbomSpecification,
-                fileSystem: fs,
-            )
+            let sbom = try generateSBOM(from: graph, filteredModules: nil)
 
             // Output the SBOM
             try outputSBOM(

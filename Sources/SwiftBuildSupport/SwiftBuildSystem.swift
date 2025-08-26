@@ -12,6 +12,7 @@
 
 @_spi(SwiftPMInternal)
 import Basics
+import Build
 import Dispatch
 import class Foundation.FileManager
 import class Foundation.JSONEncoder
@@ -34,6 +35,7 @@ import enum TSCUtility.Diagnostics
 import Foundation
 import SWBBuildService
 import SwiftBuild
+import SbomSupport
 
 
 struct SessionFailedError: Error {
@@ -346,6 +348,7 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
             return BuildResult(
                 serializedDiagnosticPathsByTargetName: .failure(StringError("Building was skipped")),
                 replArguments: nil,
+                sbom: nil,
             )
         }
 
@@ -355,13 +358,17 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
             pifTargetName: subset.pifTargetName,
             genSymbolGraph: buildOutputs.contains(.symbolGraph),
             generateReplArguments: buildOutputs.contains(.replArguments),
+            generateSbom: buildOutputs.contains(.sbom),
+            subset: subset
         )
     }
 
     private func startSWBuildOperation(
         pifTargetName: String,
         genSymbolGraph: Bool,
-        generateReplArguments: Bool
+        generateReplArguments: Bool,
+        generateSbom: Bool,
+        subset: BuildSubset
     ) async throws -> BuildResult {
         let buildStartTime = ContinuousClock.Instant.now
         var replArguments: CLIArguments?
@@ -594,6 +601,11 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
                     }
                 ),
                 replArguments: replArguments,
+                sbom: try await generateSbom ? {
+                    let graph = try await self.getPackageGraph()
+                    let filteredModules = try subset.recursiveDependencies(for: graph, observabilityScope: self.observabilityScope)
+                    return try generateSBOM(from: graph, filteredModules: filteredModules)
+                }() : nil,
             )
         }
     }

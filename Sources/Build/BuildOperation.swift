@@ -20,6 +20,7 @@ import PackageLoading
 import PackageModel
 import SPMBuildCore
 import SPMLLBuild
+import SbomSupport
 
 import class Basics.AsyncProcess
 import class TSCBasic.DiagnosticsEngine
@@ -400,6 +401,7 @@ public final class BuildOperation: PackageStructureDelegate, SPMBuildCore.BuildS
         var result = BuildResult(
             serializedDiagnosticPathsByTargetName: .failure(StringError("Building was skipped")),
             replArguments: nil,
+            sbom: nil,
         )
 
         guard !self.config.shouldSkipBuilding(for: .target) else {
@@ -466,6 +468,11 @@ public final class BuildOperation: PackageStructureDelegate, SPMBuildCore.BuildS
             symbolGraph: result.symbolGraph,
             buildPlan: buildResultBuildPlan,
             replArguments: buildResultReplArgs,
+            sbom: buildOutputs.contains(.sbom) ? try await {
+                let graph = try await self.getPackageGraph()
+                let filteredModules = try subset.recursiveDependencies(for: graph, observabilityScope: self.observabilityScope)
+                return try generateSBOM(from: graph, filteredModules: filteredModules)
+            }() : nil
         )
         var serializedDiagnosticPaths: [String: [AbsolutePath]] = [:]
         do {
@@ -1055,25 +1062,3 @@ extension BuildDescription {
     }
 }
 
-extension BuildSubset {
-    func recursiveDependencies(for graph: ModulesGraph, observabilityScope: ObservabilityScope) throws -> [ResolvedModule]? {
-        switch self {
-        case .allIncludingTests:
-            return Array(graph.reachableModules)
-        case .allExcludingTests:
-            return graph.reachableModules.filter { $0.type != .test }
-        case .product(let productName, _):
-            guard let product = graph.product(for: productName) else {
-                observabilityScope.emit(error: "no product named '\(productName)'")
-                return nil
-            }
-            return try product.recursiveModuleDependencies()
-        case .target(let targetName, _):
-            guard let target = graph.module(for: targetName) else {
-                observabilityScope.emit(error: "no target named '\(targetName)'")
-                return nil
-            }
-            return try target.recursiveModuleDependencies()
-        }
-    }
-}

@@ -9,14 +9,14 @@
 // See http://swift.org/CONTRIBUTORS.txt for the list of Swift project authors
 //
 //===----------------------------------------------------------------------===//
-package enum SBOMDataType: String, Codable, Equatable {
+public enum SBOMDataType: String, Codable, Equatable {
     case sourceCode = "source-code"
     case configuration
     case dataset
     case definition
     case other
 }
-package struct SBOMData : Codable, Equatable {
-    package let type: SBOMDataType
-    package let name: String
+public struct SBOMData : Codable, Equatable {
+    public let type: SBOMDataType
+    public let name: String
 }

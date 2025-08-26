@@ -23,6 +23,7 @@ import PackageGraph
 import SPMBuildCore
 import XCBuildSupport
 import SwiftBuildSupport
+import SbomSupport
 
 import class Basics.AsyncProcess
 import var TSCBasic.stdoutStream
@@ -113,6 +114,15 @@ struct BuildCommandOptions: ParsableArguments {
     /// If should link the Swift stdlib statically.
     @Flag(name: .customLong("static-swift-stdlib"), inversion: .prefixedNo, help: "Link Swift stdlib statically.")
     public var shouldLinkStaticSwiftStdlib: Bool = false
+
+    @Option(help: "Set the SBOM specification.")
+    var sbomSpecification: SBomSpecification = .cyclonedx
+
+    @Option(
+        name: [.long],
+        help: "The absolute path to output the SBOM."
+    )
+    var sbomOutputPath: AbsolutePath?
 }
 
 /// swift-build command namespace
@@ -197,7 +207,16 @@ public struct SwiftBuildCommand: AsyncSwiftCommand {
             outputStream: TSCBasic.stdoutStream
         )
         do {
-            try await buildSystem.build(subset: subset, buildOutputs: [])
+            let result = try await buildSystem.build(subset: subset, buildOutputs: [.sbom])
+            
+            if let sbom = result.sbom {
+                try outputSBOM(
+                    sbom,
+                    specification: options.sbomSpecification,
+                    outputPath: options.sbomOutputPath ?? productsBuildParameters.buildPath.appending("\(subset.argumentName).sbom.json"),
+                    fileSystem: swiftCommandState.fileSystem,
+                )
+            }
         } catch _ as Diagnostics {
             throw ExitCode.failure
         }

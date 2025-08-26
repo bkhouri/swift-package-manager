@@ -10,7 +10,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-package enum SBOMType: String, Codable, Equatable {
+public enum SBOMType: String, Codable, Equatable {
     case application
     case framework
     case library
@@ -21,18 +21,18 @@ package enum SBOMType: String, Codable, Equatable {
     case file
 }
 
-package struct SBOMComponent: Codable, Equatable {
-    package let type: SBOMType
-    package let bomRef: String
-    package let name: String
-    package let version: String
-    package let scope: String
-    package let data: [SBOMData]?
-    package let components: [SBOMComponent]?
-    package let licenses: [SBOMLicenseChoice]?
-    package let pedigree: SBOMPedigree?
+public struct SBOMComponent: Codable, Equatable {
+    public let type: SBOMType
+    public let bomRef: String
+    public let name: String
+    public let version: String
+    public let scope: String
+    public let data: [SBOMData]?
+    public let components: [SBOMComponent]?
+    public let licenses: [SBOMLicenseChoice]?
+    public let pedigree: SBOMPedigree?
 
-    package init(
+    public init(
         type: SBOMType,
         bomRef: String,
         name: String,

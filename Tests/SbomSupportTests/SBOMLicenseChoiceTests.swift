@@ -1,4 +1,4 @@
-//===----------------------------------------------------------------------===//
+ //===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift open source project
 //
@@ -164,9 +164,10 @@ struct SBOMLicenseChoiceTests {
         encoder.outputFormatting = .sortedKeys
         
         let jsonData = try encoder.encode(licenseChoice)
-        let jsonString = String(data: jsonData, encoding: .utf8)!
         
-        #expect(jsonString == "\"MIT\"")
+        // Parse the JSON to verify structure - expressions are wrapped in an "expression" key
+        let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
+        #expect(jsonObject["expression"] as? String == "MIT")
     }
     
     @Test
@@ -182,12 +183,13 @@ struct SBOMLicenseChoiceTests {
         
         let jsonData = try encoder.encode(licenseChoice)
         
-        // Parse the JSON to verify structure
+        // Parse the JSON to verify structure - license objects are wrapped in a "license" key
         let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
-        #expect(jsonObject["id"] as? String == "Apache-2.0")
-        #expect(jsonObject["url"] as? String == "https://apache.org/licenses/LICENSE-2.0")
+        let licenseObject = jsonObject["license"] as! [String: Any]
+        #expect(licenseObject["id"] as? String == "Apache-2.0")
+        #expect(licenseObject["url"] as? String == "https://apache.org/licenses/LICENSE-2.0")
         
-        let textObject = jsonObject["text"] as! [String: Any]
+        let textObject = licenseObject["text"] as! [String: Any]
         #expect(textObject["content"] as? String == "Apache license content")
         #expect(textObject["contentType"] as? String == "text/plain")
     }
@@ -204,11 +206,12 @@ struct SBOMLicenseChoiceTests {
         
         let jsonData = try encoder.encode(licenseChoice)
         
-        // Parse the JSON to verify structure
+        // Parse the JSON to verify structure - license objects are wrapped in a "license" key
         let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
-        #expect(jsonObject["name"] as? String == "MIT License")
-        #expect(jsonObject["url"] as? String == "https://opensource.org/licenses/MIT")
-        #expect(jsonObject["text"] == nil)
+        let licenseObject = jsonObject["license"] as! [String: Any]
+        #expect(licenseObject["name"] as? String == "MIT License")
+        #expect(licenseObject["url"] as? String == "https://opensource.org/licenses/MIT")
+        #expect(licenseObject["text"] == nil)
     }
     
     @Test
@@ -220,11 +223,12 @@ struct SBOMLicenseChoiceTests {
         
         let jsonData = try encoder.encode(licenseChoice)
         
-        // Parse the JSON to verify structure
+        // Parse the JSON to verify structure - license objects are wrapped in a "license" key
         let jsonObject = try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
-        #expect(jsonObject["id"] as? String == "MIT")
-        #expect(jsonObject["url"] == nil)
-        #expect(jsonObject["text"] == nil)
+        let licenseObject = jsonObject["license"] as! [String: Any]
+        #expect(licenseObject["id"] as? String == "MIT")
+        #expect(licenseObject["url"] == nil)
+        #expect(licenseObject["text"] == nil)
     }
     
     // MARK: - Round-trip Tests (Encode then Decode)

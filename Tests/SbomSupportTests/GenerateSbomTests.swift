@@ -282,7 +282,7 @@ struct GenerateSBOMTests {
         let networkingComponent = components.first { $0.name == "networkinglib" }!
         #expect(networkingComponent.scope == "required") // Direct dependency
         
-        let cryptoComponent = components.first { $0.name == "cryptolib" }!
+        let cryptoComponent = try #require(components.first { $0.name == "cryptolib" })
         #expect(cryptoComponent.scope == "optional") // Transitive dependency
         
         // Verify dependency relationships
@@ -290,12 +290,12 @@ struct GenerateSBOMTests {
         #expect(dependencies.count == 2) // MyApp and NetworkingLib have dependencies
         
         // MyApp depends on NetworkingLib
-        let myAppDeps = dependencies.first { $0.ref == "myapp" }!
+        let myAppDeps = try #require(dependencies.first { $0.ref == "myapp" })
         #expect(myAppDeps.dependsOn.contains("networkinglib"))
         #expect(myAppDeps.dependsOn.count == 1)
         
         // NetworkingLib depends on CryptoLib
-        let networkingDeps = dependencies.first { $0.ref == "networkinglib" }!
+        let networkingDeps = try #require(dependencies.first { $0.ref == "networkinglib" })
         #expect(networkingDeps.dependsOn.contains("cryptolib"))
         #expect(networkingDeps.dependsOn.count == 1)
     }
@@ -352,7 +352,7 @@ struct GenerateSBOMTests {
         #expect(dependencies.count == 3) // MyApp, NetworkingLib, and LoggingLib have dependencies
         
         // Verify MyApp's direct dependencies
-        let myAppDeps = dependencies.first { $0.ref == "myapp" }!
+        let myAppDeps = try #require(dependencies.first { $0.ref == "myapp" })
         #expect(myAppDeps.dependsOn.contains("networkinglib"))
         #expect(myAppDeps.dependsOn.contains("logginglib"))
         #expect(myAppDeps.dependsOn.count == 2)
@@ -404,16 +404,16 @@ struct GenerateSBOMTests {
         #expect(dependencies.count == 4) // All packages except LibD have dependencies
         
         // Verify the chain: MyApp -> LibA -> LibB -> LibC -> LibD
-        let myAppDeps = dependencies.first { $0.ref == "myapp" }!
+        let myAppDeps = try #require(dependencies.first { $0.ref == "myapp" })
         #expect(myAppDeps.dependsOn == ["liba"])
         
-        let libADeps = dependencies.first { $0.ref == "liba" }!
+        let libADeps = try #require(dependencies.first { $0.ref == "liba" })
         #expect(libADeps.dependsOn == ["libb"])
         
-        let libBDeps = dependencies.first { $0.ref == "libb" }!
+        let libBDeps = try #require(dependencies.first { $0.ref == "libb" })
         #expect(libBDeps.dependsOn == ["libc"])
         
-        let libCDeps = dependencies.first { $0.ref == "libc" }!
+        let libCDeps = try #require(dependencies.first { $0.ref == "libc" })
         #expect(libCDeps.dependsOn == ["libd"])
     }
     
@@ -442,7 +442,7 @@ struct GenerateSBOMTests {
         #expect(sharedLibComponents.count == 1, "SharedLib should appear exactly once")
         
         // Verify SharedLib is marked as transitive (optional)
-        let sharedLibComponent = sharedLibComponents.first!
+        let sharedLibComponent = try #require(sharedLibComponents.first)
         #expect(sharedLibComponent.scope == "optional")
     }
 }
@@ -455,42 +455,74 @@ private func createMockModulesGraphWithTransitiveDeps(
     rootPackageVersion: String,
     dependencyChain: [(name: String, version: String, dependencies: [(name: String, version: String, dependencies: [(name: String, version: String, dependencies: Any)])])]
 ) throws -> ModulesGraph {
-    var allPackages: [(name: String, version: String, dependencies: [String])] = []
-    var processedPackages: Set<String> = []
-    
-    // Flatten the dependency chain into a list of packages with their direct dependencies
-    func processDependency(_ name: String, _ version: String, _ deps: [(name: String, version: String, dependencies: Any)]) {
-        if processedPackages.contains(name) {
-            return // Avoid duplicates
-        }
-        processedPackages.insert(name)
-        
-        let directDeps = deps.map { $0.name }
-        allPackages.append((name: name, version: version, dependencies: directDeps))
-        
-        // Recursively process transitive dependencies
-        for dep in deps {
-            if let transitiveDeps = dep.dependencies as? [(name: String, version: String, dependencies: [(name: String, version: String, dependencies: Any)])] {
-                processDependency(dep.name, dep.version, transitiveDeps)
-            } else if let transitiveDeps = dep.dependencies as? [(name: String, version: String, dependencies: Any)] {
-                processDependency(dep.name, dep.version, transitiveDeps)
-            }
-        }
+    // Simplified structure to hold package information
+    struct PackageInfo {
+        let name: String
+        let version: String
+        let dependencies: [String]
     }
     
-    // Process all dependencies starting from the root
-    let rootDirectDeps = dependencyChain.map { $0.name }
-    allPackages.append((name: rootPackageName, version: rootPackageVersion, dependencies: rootDirectDeps))
+    var allPackages: [String: PackageInfo] = [:]
     
+    // Recursively flatten all dependencies
+    func flattenDependencies(_ deps: Any) -> [(name: String, version: String, dependencies: [String])] {
+        var result: [(name: String, version: String, dependencies: [String])] = []
+        
+        if let depArray = deps as? [(name: String, version: String, dependencies: Any)] {
+            for dep in depArray {
+                // Get the direct dependencies of this package
+                let directDeps: [String]
+                if let childDeps = dep.dependencies as? [(name: String, version: String, dependencies: Any)] {
+                    directDeps = childDeps.map { $0.name }
+                    // Recursively process child dependencies
+                    result.append(contentsOf: flattenDependencies(dep.dependencies))
+                } else {
+                    directDeps = []
+                }
+                
+                result.append((name: dep.name, version: dep.version, dependencies: directDeps))
+            }
+        }
+        
+        return result
+    }
+    
+    // Process the root package
+    let rootDirectDeps = dependencyChain.map { $0.name }
+    allPackages[rootPackageName] = PackageInfo(
+        name: rootPackageName,
+        version: rootPackageVersion,
+        dependencies: rootDirectDeps
+    )
+    
+    // Process all dependency chains to flatten the entire dependency tree
     for rootDep in dependencyChain {
-        processDependency(rootDep.name, rootDep.version, rootDep.dependencies)
+        // Add the direct dependency
+        let directDeps = rootDep.dependencies.map { $0.name }
+        allPackages[rootDep.name] = PackageInfo(
+            name: rootDep.name,
+            version: rootDep.version,
+            dependencies: directDeps
+        )
+        
+        // Recursively process all transitive dependencies
+        let transitiveDeps = flattenDependencies(rootDep.dependencies)
+        for transitiveDep in transitiveDeps {
+            if allPackages[transitiveDep.name] == nil {
+                allPackages[transitiveDep.name] = PackageInfo(
+                    name: transitiveDep.name,
+                    version: transitiveDep.version,
+                    dependencies: transitiveDep.dependencies
+                )
+            }
+        }
     }
     
     // Create file system with proper source file structure
     var emptyFiles: [String] = []
     
     // Add source files for all packages
-    for pkg in allPackages {
+    for pkg in allPackages.values {
         emptyFiles.append("/\(pkg.name)/Sources/\(pkg.name)/\(pkg.name).swift")
     }
     
@@ -513,7 +545,7 @@ private func createMockModulesGraphWithTransitiveDeps(
     manifests.append(rootManifest)
     
     // Create dependency manifests
-    for pkg in allPackages where pkg.name != rootPackageName {
+    for pkg in allPackages.values where pkg.name != rootPackageName {
         let depManifest = Manifest.createFileSystemManifest(
             displayName: pkg.name,
             path: "/\(pkg.name)",

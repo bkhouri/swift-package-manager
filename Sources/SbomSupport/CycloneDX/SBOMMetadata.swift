@@ -10,11 +10,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-package struct SBOMMetadata: Codable, Equatable {
-    package let timestamp: String?
-    package let component: SBOMComponent?
+public struct SBOMMetadata: Codable, Equatable {
+    public let timestamp: String?
+    public let component: SBOMComponent?
 
-    package init(
+    public init(
         timestamp: String,
         component: SBOMComponent?,
     ) {

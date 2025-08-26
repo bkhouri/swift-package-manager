@@ -10,33 +10,33 @@
 //
 //===----------------------------------------------------------------------===//
 
-package enum SBOMPatchType: String, Codable, Equatable {
+public enum SBOMPatchType: String, Codable, Equatable {
     case unofficial
     case monkey
     case backport
     case cherryPick = "cherry-pick"
 }
 
-package struct SBOMIdentifiableAction: Codable, Equatable {
-    package let timestamp: String?
-    package let name: String?
-    package let email: String?
+public struct SBOMIdentifiableAction: Codable, Equatable {
+    public let timestamp: String?
+    public let name: String?
+    public let email: String?
     
-    package init(timestamp: String? = nil, name: String? = nil, email: String? = nil) {
+    public init(timestamp: String? = nil, name: String? = nil, email: String? = nil) {
         self.timestamp = timestamp
         self.name = name
         self.email = email
     }
 }
 
-package struct SBOMCommit: Codable, Equatable {
-    package let uid: String?
-    package let url: String?
-    package let author: SBOMIdentifiableAction?
-    package let committer: SBOMIdentifiableAction?
-    package let message: String?
+public struct SBOMCommit: Codable, Equatable {
+    public let uid: String?
+    public let url: String?
+    public let author: SBOMIdentifiableAction?
+    public let committer: SBOMIdentifiableAction?
+    public let message: String?
     
-    package init(
+    public init(
         uid: String? = nil,
         url: String? = nil,
         author: SBOMIdentifiableAction? = nil,
@@ -51,22 +51,22 @@ package struct SBOMCommit: Codable, Equatable {
     }
 }
 
-package struct SBOMDiff: Codable, Equatable {
-    package let text: SBOMAttachment?
-    package let url: String?
+public struct SBOMDiff: Codable, Equatable {
+    public let text: SBOMAttachment?
+    public let url: String?
     
-    package init(text: SBOMAttachment? = nil, url: String? = nil) {
+    public init(text: SBOMAttachment? = nil, url: String? = nil) {
         self.text = text
         self.url = url
     }
 }
 
-package struct SBOMAttachment: Codable, Equatable {
-    package let contentType: String?
-    package let encoding: String?
-    package let content: String
+public struct SBOMAttachment: Codable, Equatable {
+    public let contentType: String?
+    public let encoding: String?
+    public let content: String
     
-    package init(contentType: String? = nil, encoding: String? = nil, content: String) {
+    public init(contentType: String? = nil, encoding: String? = nil, content: String) {
         self.contentType = contentType
         self.encoding = encoding
         self.content = content
@@ -79,31 +79,31 @@ package struct SBOMAttachment: Codable, Equatable {
     }
 }
 
-package struct SBOMIssueSource: Codable, Equatable {
-    package let name: String?
-    package let url: String?
+public struct SBOMIssueSource: Codable, Equatable {
+    public let name: String?
+    public let url: String?
     
-    package init(name: String? = nil, url: String? = nil) {
+    public init(name: String? = nil, url: String? = nil) {
         self.name = name
         self.url = url
     }
 }
 
-package enum SBOMIssueType: String, Codable, Equatable {
+public enum SBOMIssueType: String, Codable, Equatable {
     case defect
     case enhancement
     case security
 }
 
-package struct SBOMIssue: Codable, Equatable {
-    package let type: SBOMIssueType
-    package let id: String?
-    package let name: String?
-    package let description: String?
-    package let source: SBOMIssueSource?
-    package let references: [String]?
+public struct SBOMIssue: Codable, Equatable {
+    public let type: SBOMIssueType
+    public let id: String?
+    public let name: String?
+    public let description: String?
+    public let source: SBOMIssueSource?
+    public let references: [String]?
     
-    package init(
+    public init(
         type: SBOMIssueType,
         id: String? = nil,
         name: String? = nil,
@@ -120,27 +120,27 @@ package struct SBOMIssue: Codable, Equatable {
     }
 }
 
-package struct SBOMPatch: Codable, Equatable {
-    package let type: SBOMPatchType
-    package let diff: SBOMDiff?
-    package let resolves: [SBOMIssue]?
+public struct SBOMPatch: Codable, Equatable {
+    public let type: SBOMPatchType
+    public let diff: SBOMDiff?
+    public let resolves: [SBOMIssue]?
     
-    package init(type: SBOMPatchType, diff: SBOMDiff? = nil, resolves: [SBOMIssue]? = nil) {
+    public init(type: SBOMPatchType, diff: SBOMDiff? = nil, resolves: [SBOMIssue]? = nil) {
         self.type = type
         self.diff = diff
         self.resolves = resolves
     }
 }
 
-package struct SBOMPedigree: Codable, Equatable {
-    package let ancestors: [SBOMComponent]?
-    package let descendants: [SBOMComponent]?
-    package let variants: [SBOMComponent]?
-    package let commits: [SBOMCommit]?
-    package let patches: [SBOMPatch]?
-    package let notes: String?
+public struct SBOMPedigree: Codable, Equatable {
+    public let ancestors: [SBOMComponent]?
+    public let descendants: [SBOMComponent]?
+    public let variants: [SBOMComponent]?
+    public let commits: [SBOMCommit]?
+    public let patches: [SBOMPatch]?
+    public let notes: String?
     
-    package init(
+    public init(
         ancestors: [SBOMComponent]? = nil,
         descendants: [SBOMComponent]? = nil,
         variants: [SBOMComponent]? = nil,

@@ -11,11 +11,11 @@
 //===----------------------------------------------------------------------===//
 
 
-package struct SBOMDependency: Codable, Equatable {
-    package let ref: String
-    package let dependsOn: [String]
+public struct SBOMDependency: Codable, Equatable {
+    public let ref: String
+    public let dependsOn: [String]
 
-    package init(
+    public init(
         ref: String,
         dependsOn: [String]
     ) {

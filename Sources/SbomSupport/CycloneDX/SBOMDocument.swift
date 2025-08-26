@@ -10,16 +10,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-package struct SBOMDocument: Codable, Equatable {
-    package let bomFormat: String
-    package let specVersion: String
-    package let serialNumber: String?
-    package let version: Int
-    package let metadata: SBOMMetadata?
-    package let components: [SBOMComponent]?
-    package let dependencies: [SBOMDependency]?
+public struct SBOMDocument: Codable, Equatable {
+    public let bomFormat: String
+    public let specVersion: String
+    public let serialNumber: String?
+    public let version: Int
+    public let metadata: SBOMMetadata?
+    public let components: [SBOMComponent]?
+    public let dependencies: [SBOMDependency]?
 
-    package init(
+    public init(
         bomFormat: String,
         specVersion: String,
         serialNumber: String? = nil,

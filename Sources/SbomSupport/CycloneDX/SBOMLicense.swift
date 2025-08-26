@@ -10,16 +10,16 @@
 //
 //===----------------------------------------------------------------------===//
 
-package enum SBOMLicenseEncoding: String, Codable, Equatable {
+public enum SBOMLicenseEncoding: String, Codable, Equatable {
     case base64
 }
 
-package struct SBOMLicenseText: Codable, Equatable {
-    package let content: String
-    package let encoding: SBOMLicenseEncoding?
-    package let contentType: String?
+public struct SBOMLicenseText: Codable, Equatable {
+    public let content: String
+    public let encoding: SBOMLicenseEncoding?
+    public let contentType: String?
     
-    package init(
+    public init(
         content: String,
         encoding: SBOMLicenseEncoding? = nil,
         contentType: String? = "text/plain"
@@ -36,12 +36,12 @@ package struct SBOMLicenseText: Codable, Equatable {
     }
 }
 
-package struct SBOMLicenseName: Codable, Equatable {
-    package let name: String
-    package let text: SBOMLicenseText?
-    package let url: String?
+public struct SBOMLicenseName: Codable, Equatable {
+    public let name: String
+    public let text: SBOMLicenseText?
+    public let url: String?
     
-    package init(
+    public init(
         name: String,
         text: SBOMLicenseText? = nil,
         url: String? = nil
@@ -52,12 +52,12 @@ package struct SBOMLicenseName: Codable, Equatable {
     }
 }
 
-package struct SBOMLicenseID: Codable, Equatable {
-    package let id: String
-    package let text: SBOMLicenseText?
-    package let url: String?
+public struct SBOMLicenseID: Codable, Equatable {
+    public let id: String
+    public let text: SBOMLicenseText?
+    public let url: String?
     
-    package init(
+    public init(
         id: String,
         text: SBOMLicenseText? = nil,
         url: String? = nil
@@ -68,31 +68,53 @@ package struct SBOMLicenseID: Codable, Equatable {
     }
 }
 
-package enum SBOMLicenseChoice: Codable, Equatable {
+public enum SBOMLicenseChoice: Codable, Equatable {
     case expression(String)
     case licenseName(SBOMLicenseName)
     case licenseID(SBOMLicenseID)
     
-    package init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         
-        // Try to decode as a string first (expression)
+        // Try to decode as a string first (expression - for backward compatibility)
         if let expression = try? container.decode(String.self) {
             self = .expression(expression)
             return
         }
         
-        // Try to decode as different license object types
-        if let licenseID = try? container.decode(SBOMLicenseID.self) {
-            self = .licenseID(licenseID)
-        } else if let licenseName = try? container.decode(SBOMLicenseName.self) {
-            self = .licenseName(licenseName)
+        // Try to decode as wrapped dictionary format (current encoding format)
+        let keyedContainer = try decoder.container(keyedBy: CodingKeys.self)
+        
+        if let expression = try? keyedContainer.decode(String.self, forKey: .expression) {
+            self = .expression(expression)
+        } else if keyedContainer.contains(.license) {
+            // Try to decode as SBOMLicenseID first, then SBOMLicenseName
+            if let licenseID = try? keyedContainer.decode(SBOMLicenseID.self, forKey: .license) {
+                self = .licenseID(licenseID)
+            } else if let licenseName = try? keyedContainer.decode(SBOMLicenseName.self, forKey: .license) {
+                self = .licenseName(licenseName)
+            } else {
+                throw DecodingError.typeMismatch(SBOMLicenseChoice.self, DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unable to decode license object"))
+            }
         } else {
-            throw DecodingError.typeMismatch(SBOMLicenseChoice.self, DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unable to decode SBOMLicenseChoice"))
+            // Try to decode as different license object types directly (for backward compatibility)
+            let singleContainer = try decoder.singleValueContainer()
+            if let licenseID = try? singleContainer.decode(SBOMLicenseID.self) {
+                self = .licenseID(licenseID)
+            } else if let licenseName = try? singleContainer.decode(SBOMLicenseName.self) {
+                self = .licenseName(licenseName)
+            } else {
+                throw DecodingError.typeMismatch(SBOMLicenseChoice.self, DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Unable to decode SBOMLicenseChoice"))
+            }
         }
     }
     
-    package func encode(to encoder: Encoder) throws {
+    private enum CodingKeys: String, CodingKey {
+        case expression
+        case license
+    }
+    
+    public func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         
         switch self {

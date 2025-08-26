@@ -484,6 +484,7 @@ let package = Package(
             dependencies: [
                 "Basics",
                 "PackageGraph",
+                "SbomSupport",
                 .product(name: "OrderedCollections", package: "swift-collections"),
             ],
             exclude: ["CMakeLists.txt"],

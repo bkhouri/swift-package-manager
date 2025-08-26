@@ -12,6 +12,7 @@
 
 import Basics
 import PackageGraph
+import SbomSupport
 
 import enum PackageModel.TraitConfiguration
 
@@ -48,6 +49,7 @@ public enum BuildOutput {
     // "-emit-synthesized-members"
     case buildPlan
     case replArguments
+    case sbom
 }
 
 /// A protocol that represents a build system used by SwiftPM for all build operations. This allows factoring out the
@@ -99,17 +101,20 @@ public struct BuildResult {
         serializedDiagnosticPathsByTargetName: Result<[String: [AbsolutePath]], Error>,
         symbolGraph: SymbolGraphResult? = nil,
         buildPlan: BuildPlan? = nil,
-        replArguments: CLIArguments?
+        replArguments: CLIArguments?,
+        sbom: SBOMDocument?,
     ) {
         self.serializedDiagnosticPathsByTargetName = serializedDiagnosticPathsByTargetName
         self.symbolGraph = symbolGraph
         self.buildPlan = buildPlan
         self.replArguments = replArguments
+        self.sbom = sbom
     }
     
     public let replArguments: CLIArguments?
     public let symbolGraph: SymbolGraphResult?
     public let buildPlan: BuildPlan?
+    public let sbom: SBOMDocument?
 
     public var serializedDiagnosticPathsByTargetName: Result<[String: [AbsolutePath]], Error>
 }
@@ -241,5 +246,28 @@ public enum BuildSystemUtilities {
         guard Environment.current["SWIFTPM_TESTS_MODULECACHE"] == nil else { return nil }
         guard let env = Environment.current["SWIFTPM_BUILD_DIR"] else { return nil }
         return try AbsolutePath(validating: env, relativeTo: workingDir)
+    }
+}
+
+extension BuildSubset {
+    public func recursiveDependencies(for graph: ModulesGraph, observabilityScope: ObservabilityScope) throws -> [ResolvedModule]? {
+        switch self {
+        case .allIncludingTests:
+            return Array(graph.reachableModules)
+        case .allExcludingTests:
+            return graph.reachableModules.filter { $0.type != .test }
+        case .product(let productName, _):
+            guard let product = graph.product(for: productName) else {
+                observabilityScope.emit(error: "no product named '\(productName)'")
+                return nil
+            }
+            return try product.recursiveModuleDependencies()
+        case .target(let targetName, _):
+            guard let target = graph.module(for: targetName) else {
+                observabilityScope.emit(error: "no target named '\(targetName)'")
+                return nil
+            }
+            return try target.recursiveModuleDependencies()
+        }
     }
 }
