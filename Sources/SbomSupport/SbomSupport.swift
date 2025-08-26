@@ -197,7 +197,7 @@ internal func extractHeadCommitInfo(from package: ResolvedPackage, fileSystem: F
         
         // Use AsyncProcess directly to get commit details since callGit is private
         let process = AsyncProcess(
-            arguments: ["git", "-C", package.path.pathString, "log", "-1", "--format=%H|%an|%ae|%ai|%s", currentRevision.identifier],
+            arguments: ["git", "-C", package.path.pathString, "log", "-1", "--format=%H|%aN|%ae|%aI|%cN|%ce|%cI|%B", currentRevision.identifier],
             environment: .current,
             outputRedirection: .collect
         )
@@ -210,26 +210,34 @@ internal func extractHeadCommitInfo(from package: ResolvedPackage, fileSystem: F
         }
         
         let commitInfo = try result.utf8Output().spm_chomp()
-        let parts = commitInfo.split(separator: "|", maxSplits: 4)
-        guard parts.count == 5 else {
+        let numItems = 8
+        let parts = commitInfo.split(separator: "|", maxSplits: numItems)
+        guard parts.count == numItems else {
             return nil
         }
         
         let commitHash = String(parts[0])
         let authorName = String(parts[1])
         let authorEmail = String(parts[2])
-        let timestamp = String(parts[3])
-        let message = String(parts[4])
+        let authorTimestamp = String(parts[3])
+        let committerName = String(parts[4])
+        let committerEmail = String(parts[5])
+        let committerTimestamp = String(parts[6])
+        let message = String(parts[7])
         
         return SBOMCommit(
             uid: commitHash,
             url: nil, // We don't have the remote URL context here
             author: SBOMIdentifiableAction(
-                timestamp: timestamp,
+                timestamp: authorTimestamp,
                 name: authorName,
                 email: authorEmail
             ),
-            committer: nil, // Could be added if needed
+            committer: SBOMIdentifiableAction(
+                timestamp: committerTimestamp,
+                name: committerName,
+                email: committerEmail,
+            ),
             message: message
         )
         
@@ -237,6 +245,22 @@ internal func extractHeadCommitInfo(from package: ResolvedPackage, fileSystem: F
         // If we can't get Git information, return nil
         return nil
     }
+}
+
+/// Creates a pedigree with HEAD commit information for packages without version
+internal func createPedigreeWithHeadCommit(from package: ResolvedPackage, fileSystem: FileSystem = localFileSystem) -> SBOMPedigree? {
+    guard let commit = extractHeadCommitInfo(from: package, fileSystem: fileSystem) else {
+        return nil
+    }
+    
+    return SBOMPedigree(
+        ancestors: nil,
+        descendants: nil,
+        variants: nil,
+        commits: [commit],
+        patches: nil,
+        notes: "HEAD commit information for package without version"
+    )
 }
 
 package func generateSBOM(from graph: ModulesGraph) throws -> SBOMDocument {
@@ -270,18 +294,7 @@ package func generateSBOM(from graph: ModulesGraph) throws -> SBOMDocument {
     // Add root package as a component
     let rootVersion = rootPackage.manifest.version?.description ?? "unknown"
     let rootLicenses = extractLicenseInformation(from: rootPackage)
-    let rootPedigree: SBOMPedigree? = if rootVersion == "unknown", let commit = extractHeadCommitInfo(from: rootPackage) {
-        SBOMPedigree(
-            ancestors: nil,
-            descendants: nil,
-            variants: nil,
-            commits: [commit],
-            patches: nil,
-            notes: "HEAD commit information for package without version"
-        )
-    } else {
-        nil
-    }
+    let rootPedigree = rootVersion == "unknown" ? createPedigreeWithHeadCommit(from: rootPackage) : nil
     
     components.append(
         SBOMComponent(
@@ -307,18 +320,7 @@ package func generateSBOM(from graph: ModulesGraph) throws -> SBOMDocument {
             }
             let scope = isDirectDependency ? "required" : "optional"
             
-            let packagePedigree: SBOMPedigree? = if packageVersion == "unknown", let commit = extractHeadCommitInfo(from: package) {
-                SBOMPedigree(
-                    ancestors: nil,
-                    descendants: nil,
-                    variants: nil,
-                    commits: [commit],
-                    patches: nil,
-                    notes: "HEAD commit information for package without version"
-                )
-            } else {
-                nil
-            }
+            let packagePedigree = packageVersion == "unknown" ? createPedigreeWithHeadCommit(from: package) : nil
             
             components.append(
                 SBOMComponent(
