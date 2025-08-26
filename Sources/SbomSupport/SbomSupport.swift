@@ -1,4 +1,5 @@
 //===----------------------------------------------------------------------===//
+ //===----------------------------------------------------------------------===//
 //
 // This source file is part of the Swift open source project
 //
@@ -186,6 +187,27 @@ package func generateSBOM(from graph: ModulesGraph) throws -> SBOMDocument {
     }
 
     var components: [SBOMComponent] = []
+    var allDependencyPackages: Set<PackageIdentity> = []
+
+    // Collect all transitive dependencies recursively
+    func collectAllDependencies(from package: ResolvedPackage, visited: inout Set<PackageIdentity>) {
+        let directDeps = graph.directDependencies(for: package)
+        for dependencyPackage in directDeps {
+            if !visited.contains(dependencyPackage.identity) {
+                visited.insert(dependencyPackage.identity)
+                allDependencyPackages.insert(dependencyPackage.identity)
+                
+                // Recursively collect transitive dependencies
+                collectAllDependencies(from: dependencyPackage, visited: &visited)
+            }
+        }
+    }
+
+    // Collect all dependencies starting from root packages
+    var visited: Set<PackageIdentity> = []
+    for rootPkg in graph.rootPackages {
+        collectAllDependencies(from: rootPkg, visited: &visited)
+    }
 
     // Add root package as a component
     let rootVersion = rootPackage.manifest.version?.description ?? "unknown"
@@ -201,37 +223,61 @@ package func generateSBOM(from graph: ModulesGraph) throws -> SBOMDocument {
         )
     )
 
-    // Add all dependencies as components
-    for package in graph.packages {
-        if package.identity != rootPackage.identity {
+    // Add all dependency packages as components (both direct and transitive)
+    for dependencyId in allDependencyPackages {
+        if let package = graph.package(for: dependencyId) {
             let packageVersion = package.manifest.version?.description ?? "unknown"
             let packageLicenses = extractLicenseInformation(from: package)
+            
+            // Determine if this is a direct or transitive dependency
+            let isDirectDependency = graph.rootPackages.contains { rootPkg in
+                graph.directDependencies(for: rootPkg).contains { $0.identity == dependencyId }
+            }
+            let scope = isDirectDependency ? "required" : "optional"
+            
             components.append(
                 SBOMComponent(
                     type: .library,
                     bomRef: package.identity.description,
                     name: package.identity.description,
                     version: packageVersion,
-                    scope: "required",
+                    scope: scope,
                     licenses: packageLicenses
                 )
             )
         }
     }
 
-    // Create dependency relationships
+    // Create dependency relationships for all packages (root + dependencies)
     var dependencies: [SBOMDependency] = []
-    for package in graph.packages {
-        let packageDeps = package.dependencies.map { dep in
-            dep.description
-        }
-        if !packageDeps.isEmpty {
+    
+    // Add root package dependencies
+    for rootPkg in graph.rootPackages {
+        let directDeps = graph.directDependencies(for: rootPkg)
+        let rootDeps = directDeps.map { $0.identity.description }
+        if !rootDeps.isEmpty {
             dependencies.append(
                 SBOMDependency(
-                    ref: package.identity.description,
-                    dependsOn: packageDeps
+                    ref: rootPkg.identity.description,
+                    dependsOn: rootDeps
                 )
             )
+        }
+    }
+    
+    // Add dependencies for all dependency packages
+    for dependencyId in allDependencyPackages {
+        if let package = graph.package(for: dependencyId) {
+            let directDeps = graph.directDependencies(for: package)
+            let packageDeps = directDeps.map { $0.identity.description }
+            if !packageDeps.isEmpty {
+                dependencies.append(
+                    SBOMDependency(
+                        ref: package.identity.description,
+                        dependsOn: packageDeps
+                    )
+                )
+            }
         }
     }
 

@@ -1001,6 +1001,8 @@ let package = Package(
             ],
             resources: [
                 .copy("Resources/CycloneDX/bom-1.4.schema.json"),
+                .copy("Resources/CycloneDX/spdx.schema.json"),
+                .copy("Resources/CycloneDX/jsf-0.82.schema.json"),
             ],
         ),
         .testTarget(
