@@ -61,7 +61,7 @@ extension SwiftPackageCommand {
             let fs = swiftCommandState.fileSystem
 
             // Generate the SBOM
-            let sbom = try generateSBOM(from: graph, filteredModules: nil)
+            let sbom = try generateSBOM(from: graph)
 
             // Output the SBOM
             try outputSBOM(

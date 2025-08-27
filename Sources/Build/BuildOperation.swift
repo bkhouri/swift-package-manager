@@ -470,8 +470,7 @@ public final class BuildOperation: PackageStructureDelegate, SPMBuildCore.BuildS
             replArguments: buildResultReplArgs,
             sbom: buildOutputs.contains(.sbom) ? try await {
                 let graph = try await self.getPackageGraph()
-                let filteredModules = try subset.recursiveDependencies(for: graph, observabilityScope: self.observabilityScope)
-                return try generateSBOM(from: graph, filteredModules: filteredModules)
+                return try generateSBOM(from: graph)
             }() : nil
         )
         var serializedDiagnosticPaths: [String: [AbsolutePath]] = [:]

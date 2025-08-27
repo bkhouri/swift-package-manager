@@ -15,6 +15,7 @@ let package = Package(
     dependencies: [
         .package(path: "../Dep1-Apache2.0"),
         .package(path: "../Dep2-GPLv2"),
+        .package(path: "../DepWithNoProducts-ISC"),
         .package(path: "../Dep3-BSD3"),
     ],
     targets: [

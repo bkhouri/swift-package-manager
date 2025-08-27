@@ -213,7 +213,7 @@ public struct SwiftBuildCommand: AsyncSwiftCommand {
                 try outputSBOM(
                     sbom,
                     specification: options.sbomSpecification,
-                    outputPath: options.sbomOutputPath ?? productsBuildParameters.buildPath.appending("\(subset.argumentName).sbom.json"),
+                    outputPath: options.sbomOutputPath ?? productsBuildParameters.buildPath.appending("sbom.json"),
                     fileSystem: swiftCommandState.fileSystem,
                 )
             }

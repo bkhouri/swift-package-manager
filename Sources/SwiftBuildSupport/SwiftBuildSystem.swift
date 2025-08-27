@@ -603,8 +603,7 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
                 replArguments: replArguments,
                 sbom: try await generateSbom ? {
                     let graph = try await self.getPackageGraph()
-                    let filteredModules = try subset.recursiveDependencies(for: graph, observabilityScope: self.observabilityScope)
-                    return try generateSBOM(from: graph, filteredModules: filteredModules)
+                    return try generateSBOM(from: graph)
                 }() : nil,
             )
         }
