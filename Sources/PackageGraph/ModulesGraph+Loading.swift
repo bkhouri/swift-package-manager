@@ -1312,7 +1312,8 @@ private final class ResolvedProductBuilder: ResolvedBuilder<ResolvedProduct> {
         try ResolvedProduct(
             packageIdentity: self.packageBuilder.package.identity,
             product: self.product,
-            modules: IdentifiableSet(self.moduleBuilders.map { try $0.construct() })
+            modules: IdentifiableSet(self.moduleBuilders.map { try $0.construct() }),
+            includeInSbom: self.product.includeInSbom,
         )
     }
 }

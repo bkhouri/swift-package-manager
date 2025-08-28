@@ -8,8 +8,8 @@ let package = Package(
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
-            name: "App",
-            targets: ["App"]
+            name: "AppProduct",
+            targets: ["AppTarget"]
         ),
     ],
     dependencies: [
@@ -22,11 +22,14 @@ let package = Package(
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "App"
+            name: "AppTarget"
         ),
         .testTarget(
-            name: "AppTests",
-            dependencies: ["App"]
+            name: "AppTargetTests",
+            dependencies: [
+                "AppTarget",
+                .product(name: "Dep1-Apache2.0", package: "Dep1-Apache2.0"),
+            ]
         ),
     ]
 )

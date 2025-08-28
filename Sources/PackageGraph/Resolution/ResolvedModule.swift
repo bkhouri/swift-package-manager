@@ -233,8 +233,8 @@ extension ResolvedModule.Dependency: CustomStringConvertible {
 }
 
 extension ResolvedModule.Dependency: Identifiable {
-    public struct ID: Hashable {
-        enum Kind: Hashable {
+    public struct ID: Hashable, CustomStringConvertible {
+        enum Kind: String, Hashable {
             case module
             case product
 
@@ -245,6 +245,10 @@ extension ResolvedModule.Dependency: Identifiable {
         let kind: Kind
         let packageIdentity: PackageIdentity
         let name: String
+
+        public var description: String {
+            "\(self.kind):\(self.packageIdentity):\(self.name)"
+        }
     }
 
     public var id: ID {
@@ -283,12 +287,16 @@ extension ResolvedModule.Dependency: Hashable {
 
 extension ResolvedModule: Identifiable {
     /// Resolved module identity that uniquely identifies it in a modules graph.
-    public struct ID: Hashable {
+    public struct ID: Hashable, CustomStringConvertible {
         @available(*, deprecated, renamed: "moduleName")
         public var targetName: String { self.moduleName }
 
         public let moduleName: String
         let packageIdentity: PackageIdentity
+
+        public var description: String {
+            "\(self.packageIdentity):\(self.moduleName)"
+        }
     }
 
     public var id: ID {

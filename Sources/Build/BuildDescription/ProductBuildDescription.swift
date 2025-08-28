@@ -419,9 +419,13 @@ public final class ProductBuildDescription: SPMBuildCore.ProductBuildDescription
 }
 
 extension ProductBuildDescription: Identifiable {
-    public struct ID: Hashable {
+    public struct ID: Hashable, CustomStringConvertible{
         let productID: ResolvedProduct.ID
         let destination: BuildParameters.Destination
+
+        public var description: String {
+            "\(self.productID):\(self.destination)"
+        }
     }
 
     public var id: ID {

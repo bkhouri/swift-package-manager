@@ -159,9 +159,13 @@ public enum ModuleBuildDescription: SPMBuildCore.ModuleBuildDescription {
 }
 
 extension ModuleBuildDescription: Identifiable {
-    public struct ID: Hashable {
+    public struct ID: Hashable, CustomStringConvertible {
         let moduleID: ResolvedModule.ID
         let destination: BuildParameters.Destination
+
+        public var description: String {
+            "\(self.moduleID):\(self.destination)"
+        }
     }
 
     public var id: ID {

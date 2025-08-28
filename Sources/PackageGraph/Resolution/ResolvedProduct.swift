@@ -74,24 +74,27 @@ public struct ResolvedProduct {
         self.modules.contains(where: \.hasDirectMacroDependencies)
     }
 
-    @available(*, deprecated, renamed: "init(packageIdentity:product:modules:)")
+    @available(*, deprecated, renamed: "init(packageIdentity:product:modules:includeInSbom:)")
     public init(
         packageIdentity: PackageIdentity,
         product: Product,
         targets: IdentifiableSet<ResolvedModule>
     ) {
-        self.init(packageIdentity: packageIdentity, product: product, modules: targets)
+        self.init(packageIdentity: packageIdentity, product: product, modules: targets, includeInSbom: false)
     }
 
+    public let includeInSbom: Bool
     public init(
         packageIdentity: PackageIdentity,
         product: Product,
-        modules: IdentifiableSet<ResolvedModule>
+        modules: IdentifiableSet<ResolvedModule>,
+        includeInSbom: Bool,
     ) {
         assert(product.modules.count == modules.count && product.modules.map(\.name).sorted() == modules.map(\.name).sorted())
         self.packageIdentity = packageIdentity
         self.underlying = product
         self.modules = modules
+        self.includeInSbom = includeInSbom
 
         // defaultLocalization is currently shared across the entire package
         // this may need to be enhanced if / when we support localization per module or product
@@ -193,7 +196,11 @@ extension ResolvedProduct {
 
 extension ResolvedProduct: Identifiable {
     /// Resolved module identity that uniquely identifies it in a resolution graph.
-    public struct ID: Hashable {
+    public struct ID: Hashable, CustomStringConvertible {
+        public var description: String {
+            "\(self.packageIdentity):\(self.productName)"
+        }
+
         public let productName: String
         let packageIdentity: PackageIdentity
     }

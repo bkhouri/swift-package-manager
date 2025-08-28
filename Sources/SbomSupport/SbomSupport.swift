@@ -269,106 +269,111 @@ package func generateSBOM(from graph: ModulesGraph) throws -> SBOMDocument {
     }
 
     var components: [SBOMComponent] = []
-    var allDependencyPackages: Set<PackageIdentity> = []
+    var allProducts: IdentifiableSet<ResolvedProduct> = []
 
-    // Collect all transitive dependencies recursively
-    func collectAllDependencies(from package: ResolvedPackage, visited: inout Set<PackageIdentity>) {
-        let directDeps = graph.directDependencies(for: package)
-        for dependencyPackage in directDeps {
-            if !visited.contains(dependencyPackage.identity) {
-                visited.insert(dependencyPackage.identity)
-                allDependencyPackages.insert(dependencyPackage.identity)
-                
-                // Recursively collect transitive dependencies
-                collectAllDependencies(from: dependencyPackage, visited: &visited)
+    // Collect all products from all packages (root + dependencies)
+    func collectAllProducts(from package: ResolvedPackage, visited: inout Set<PackageIdentity>) {
+        if !visited.contains(package.identity) {
+            visited.insert(package.identity)
+            
+            // Add all products from this package
+            for product in package.products {
+                if !product.includeInSbom { continue}
+                allProducts.insert(product)
+            }
+            
+            // Recursively collect from dependencies
+            let directDeps = graph.directDependencies(for: package)
+            for dependencyPackage in directDeps {
+                collectAllProducts(from: dependencyPackage, visited: &visited)
             }
         }
     }
 
-    // Collect all dependencies starting from root packages
+    // Collect all products starting from root packages
     var visited: Set<PackageIdentity> = []
     for rootPkg in graph.rootPackages {
-        collectAllDependencies(from: rootPkg, visited: &visited)
+        collectAllProducts(from: rootPkg, visited: &visited)
     }
 
-    // Add root package as a component
+    // Create components for all products
+    for product in allProducts {
+        // if let product = graph.allProducts.first(where: { $0.id == productId }) {
+            let package: ResolvedPackage = graph.package(for: product.packageIdentity)!
+            let productVersion = package.manifest.version?.description ?? "unknown"
+            let productLicenses = extractLicenseInformation(from: package)
+            
+            // Determine if this is from root package or dependency
+            let isFromRootPackage = graph.rootPackages.contains { $0.identity == product.packageIdentity }
+            let scope = isFromRootPackage ? "required" : "optional"
+            
+            let productPedigree = productVersion == "unknown" ? createPedigreeWithHeadCommit(from: package) : nil
+            
+            // Determine component type based on product type
+            let componentType: SBOMType = switch product.type {
+            case .executable, .snippet: .application
+            case .library, .macro, .plugin, .test: .library
+            }
+            
+            components.append(
+                SBOMComponent(
+                    type: componentType,
+                    bomRef: "\(product.id)",
+                    // bomRef: "\(product.packageIdentity.description):\(product.name)",
+                    name: product.name,
+                    version: productVersion,
+                    scope: scope,
+                    licenses: productLicenses,
+                    pedigree: productPedigree
+                )
+            )
+        // }
+    }
+
+    // Create dependency relationships between products
+    var dependencies: [SBOMDependency] = []
+    
+    for product in allProducts {
+        // if let product = graph.allProducts.first(where: { $0.id == productId }) {
+            var productDependencies: [String] = []
+            
+            // Find products that this product depends on through its modules
+            for module in product.modules {
+                for dependency in module.dependencies {
+                    switch dependency {
+                    case .product(let dependentProduct, _):
+                        let dependentProductRef = "\(dependentProduct.packageIdentity.description):\(dependentProduct.name)"
+                        if !productDependencies.contains(dependentProductRef) {
+                            productDependencies.append(dependentProductRef)
+                        }
+                    case .module(let dependentModule, _):
+                        // Find which product contains this module
+                        if let containingProduct = graph.allProducts.first(where: { $0.modules.contains(id: dependentModule.id) }) {
+                            let containingProductRef = "\(containingProduct.packageIdentity.description):\(containingProduct.name)"
+                            if containingProductRef != "\(product.packageIdentity.description):\(product.name)" && !productDependencies.contains(containingProductRef) {
+                                productDependencies.append(containingProductRef)
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if !productDependencies.isEmpty {
+                dependencies.append(
+                    SBOMDependency(
+                        ref: "\(product.packageIdentity.description):\(product.name)",
+                        dependsOn: productDependencies
+                    )
+                )
+            }
+        // }
+    }
+
+    // Create metadata based on root package (as requested)
     let rootVersion = rootPackage.manifest.version?.description ?? "unknown"
     let rootLicenses = extractLicenseInformation(from: rootPackage)
     let rootPedigree = rootVersion == "unknown" ? createPedigreeWithHeadCommit(from: rootPackage) : nil
     
-    components.append(
-        SBOMComponent(
-            type: .library,
-            bomRef: rootPackage.identity.description,
-            name: rootPackage.identity.description,
-            version: rootVersion,
-            scope: "required",
-            licenses: rootLicenses,
-            pedigree: rootPedigree
-        )
-    )
-
-    // Add all dependency packages as components (both direct and transitive)
-    for dependencyId in allDependencyPackages {
-        if let package = graph.package(for: dependencyId) {
-            let packageVersion = package.manifest.version?.description ?? "unknown"
-            let packageLicenses = extractLicenseInformation(from: package)
-            
-            // Determine if this is a direct or transitive dependency
-            let isDirectDependency = graph.rootPackages.contains { rootPkg in
-                graph.directDependencies(for: rootPkg).contains { $0.identity == dependencyId }
-            }
-            let scope = isDirectDependency ? "required" : "optional"
-            
-            let packagePedigree = packageVersion == "unknown" ? createPedigreeWithHeadCommit(from: package) : nil
-            
-            components.append(
-                SBOMComponent(
-                    type: .library,
-                    bomRef: package.identity.description,
-                    name: package.identity.description,
-                    version: packageVersion,
-                    scope: scope,
-                    licenses: packageLicenses,
-                    pedigree: packagePedigree
-                )
-            )
-        }
-    }
-
-    // Create dependency relationships for all packages (root + dependencies)
-    var dependencies: [SBOMDependency] = []
-    
-    // Add root package dependencies
-    for rootPkg in graph.rootPackages {
-        let directDeps = graph.directDependencies(for: rootPkg)
-        let rootDeps = directDeps.map { $0.identity.description }
-        if !rootDeps.isEmpty {
-            dependencies.append(
-                SBOMDependency(
-                    ref: rootPkg.identity.description,
-                    dependsOn: rootDeps
-                )
-            )
-        }
-    }
-    
-    // Add dependencies for all dependency packages
-    for dependencyId in allDependencyPackages {
-        if let package = graph.package(for: dependencyId) {
-            let directDeps = graph.directDependencies(for: package)
-            let packageDeps = directDeps.map { $0.identity.description }
-            if !packageDeps.isEmpty {
-                dependencies.append(
-                    SBOMDependency(
-                        ref: package.identity.description,
-                        dependsOn: packageDeps
-                    )
-                )
-            }
-        }
-    }
-
     let types = rootPackage.products.map { $0.type }
     let sbomMetadataType: SBOMType = if types.contains(.executable) {
         .application
@@ -490,10 +495,10 @@ package func validateSBOMJSON(_ jsonData: Foundation.Data, specification: SBomSp
     
     // Try to find the schema file using Bundle resources first, then fallback to file paths
     var schemaData: Foundation.Data?
-    let bomSchemaVersion = "1.4"
+    let bomSchemaVersion = "1.6"
     
     // First try to load from Bundle resources
-    if let bundleSchemaURL = Bundle.module.url(forResource: "bom-1.6.schema", withExtension: "json", subdirectory: "CycloneDX") {
+    if let bundleSchemaURL = Bundle.module.url(forResource: "bom-\(bomSchemaVersion).schema", withExtension: "json", subdirectory: "CycloneDX") {
         do {
             schemaData = try Data(contentsOf: bundleSchemaURL)
         } catch {
@@ -668,4 +673,3 @@ package func convertToSPDX(_ cycloneDX: SBOMDocument) -> SPDXDocument {
         }
     )
 }
-
