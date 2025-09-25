@@ -234,20 +234,26 @@ def stream_event_file(event_stream_path: pathlib.Path, stop_event: threading.Eve
                         file_position = f.tell()
                         retry_count = 0  # Reset on successful read
                     else:
-                        time.sleep(0.1)
+                        # Check stop event before sleeping
+                        if stop_event.wait(0.1):  # Wait 0.1s or until stop_event is set
+                            break
                         break  # Exit inner loop to reopen file
                         
         except PermissionError as e:
             retry_count += 1
             if retry_count <= max_retries:
                 logging.debug("Permission denied, retrying (%d/%d): %s", retry_count, max_retries, e)
-                time.sleep(0.2 * retry_count)  # Exponential backoff
+                # Use wait() instead of sleep() to be responsive to stop_event
+                if stop_event.wait(0.2 * retry_count):  # Exponential backoff but responsive
+                    break
             else:
                 logging.warning("Could not read event stream file after %d attempts: %s", max_retries, e)
                 break
         except (FileNotFoundError, OSError) as e:
             logging.warning("Could not read event stream file: %s", e)
-            time.sleep(0.5)
+            # Use wait() instead of sleep() to be responsive to stop_event
+            if stop_event.wait(0.5):
+                break
         except Exception as e:
             logging.error("Error streaming event file: %s", e)
             break
