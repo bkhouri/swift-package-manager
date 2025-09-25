@@ -230,7 +230,7 @@ def stream_event_file(event_stream_path: pathlib.Path, stop_event: threading.Eve
                 while not stop_event.is_set():
                     line = f.readline()
                     if line:
-                        print(f"[EVENT-STREAM] {line.rstrip()}")
+                        logging.info("[EVENT-STREAM] %s", line.rstrip())
                         file_position = f.tell()
                         retry_count = 0  # Reset on successful read
                     else:
