@@ -216,23 +216,41 @@ def stream_event_file(event_stream_path: pathlib.Path, stop_event: threading.Eve
     if stop_event.is_set():
         return
 
-    try:
-        with open(event_stream_path, 'r') as f:
-            # Start from the beginning of the file
-            f.seek(0)
-
-            while not stop_event.is_set():
-                line = f.readline()
-                if line:
-                    # Print the line without extra newline since readline() includes it
-                    print(f"[EVENT-STREAM] {line.rstrip()}")
-                else:
-                    # No new data, wait a bit before checking again
-                    time.sleep(0.1)
-    except (FileNotFoundError, PermissionError) as e:
-        logging.warning("Could not read event stream file: %s", e)
-    except Exception as e:
-        logging.error("Error streaming event file: %s", e)
+    file_position = 0
+    retry_count = 0
+    max_retries = 5
+    
+    while not stop_event.is_set():
+        try:
+            # Open with UTF-8 encoding and read sharing for Windows compatibility
+            with open(event_stream_path, 'r', encoding='utf-8', errors='replace') as f:
+                f.seek(file_position)
+                
+                # Read available content
+                while not stop_event.is_set():
+                    line = f.readline()
+                    if line:
+                        print(f"[EVENT-STREAM] {line.rstrip()}")
+                        file_position = f.tell()
+                        retry_count = 0  # Reset on successful read
+                    else:
+                        time.sleep(0.1)
+                        break  # Exit inner loop to reopen file
+                        
+        except PermissionError as e:
+            retry_count += 1
+            if retry_count <= max_retries:
+                logging.debug("Permission denied, retrying (%d/%d): %s", retry_count, max_retries, e)
+                time.sleep(0.2 * retry_count)  # Exponential backoff
+            else:
+                logging.warning("Could not read event stream file after %d attempts: %s", max_retries, e)
+                break
+        except (FileNotFoundError, OSError) as e:
+            logging.warning("Could not read event stream file: %s", e)
+            time.sleep(0.5)
+        except Exception as e:
+            logging.error("Error streaming event file: %s", e)
+            break
 
     logging.info("Stopped streaming event file")
 
