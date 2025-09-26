@@ -30,6 +30,8 @@ import typing as t
 if platform.system() == "Windows":
     import msvcrt
     import stat
+    import ctypes
+    from ctypes import wintypes
 
 from helpers import (
     Configuration,
@@ -37,6 +39,38 @@ from helpers import (
     call,
     call_output,
 )
+
+# Windows API constants and functions for proper file sharing
+if platform.system() == "Windows":
+    # Windows API constants
+    GENERIC_READ = 0x80000000
+    GENERIC_WRITE = 0x40000000
+    FILE_SHARE_READ = 0x00000001
+    FILE_SHARE_WRITE = 0x00000002
+    OPEN_ALWAYS = 4
+    TRUNCATE_EXISTING = 5
+    CREATE_ALWAYS = 2
+    FILE_ATTRIBUTE_NORMAL = 0x80
+    INVALID_HANDLE_VALUE = -1
+    
+    # Windows API functions
+    kernel32 = ctypes.windll.kernel32
+    
+    # Define CreateFile function
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,  # lpFileName
+        wintypes.DWORD,    # dwDesiredAccess
+        wintypes.DWORD,    # dwShareMode
+        ctypes.c_void_p,   # lpSecurityAttributes
+        wintypes.DWORD,    # dwCreationDisposition
+        wintypes.DWORD,    # dwFlagsAndAttributes
+        wintypes.HANDLE    # hTemplateFile
+    ]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    
+    # Define CloseHandle function
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
 
 logging.basicConfig(
     format=" | ".join(
@@ -291,23 +325,26 @@ def _create_windows_shared_file(file_path: pathlib.Path) -> None:
         return
     
     try:
-        import os
-        # Use os.open with explicit sharing flags for Windows
-        # O_CREAT | O_WRONLY | O_TRUNC: Create, write-only, truncate if exists
-        # Additional Windows-specific sharing flags would be handled by the OS
-        fd = os.open(
-            str(file_path),
-            os.O_CREAT | os.O_WRONLY | os.O_TRUNC,
-            stat.S_IREAD | stat.S_IWRITE
+        # Use Windows API to create file with explicit sharing permissions
+        handle = kernel32.CreateFileW(
+            str(file_path),                                    # lpFileName
+            GENERIC_WRITE,                                     # dwDesiredAccess
+            FILE_SHARE_READ | FILE_SHARE_WRITE,               # dwShareMode - allow both read and write sharing
+            None,                                             # lpSecurityAttributes
+            CREATE_ALWAYS,                                    # dwCreationDisposition - always create (truncate if exists)
+            FILE_ATTRIBUTE_NORMAL,                            # dwFlagsAndAttributes
+            None                                              # hTemplateFile
         )
-        os.close(fd)
         
-        # Set file permissions to be readable and writable by owner and group
-        file_path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
+        if handle == INVALID_HANDLE_VALUE:
+            raise OSError(f"Failed to create file with Windows API: {ctypes.GetLastError()}")
         
-        logging.debug("Created Windows shared file with explicit permissions: %s", file_path)
+        # Close the handle immediately as we just needed to create the file
+        kernel32.CloseHandle(handle)
+        
+        logging.debug("Created Windows shared file with explicit API permissions: %s", file_path)
     except Exception as e:
-        logging.warning("Failed to create Windows shared file, falling back to standard creation: %s", e)
+        logging.warning("Failed to create Windows shared file with API, falling back to standard creation: %s", e)
         # Fallback to standard file creation
         with open(file_path, 'w', encoding='utf-8') as f:
             pass
@@ -317,14 +354,32 @@ def _open_file_with_sharing(file_path: pathlib.Path, mode: str = 'r') -> t.Any:
     """Open a file with Windows sharing permissions when available."""
     if is_on_windows():
         try:
-            # On Windows, try to open with sharing permissions
-            # Use 'r' mode with explicit sharing for concurrent access
+            # On Windows, use the API to open with explicit sharing permissions
             if 'r' in mode:
-                # For reading, open in a way that allows other processes to write
-                return open(file_path, mode, encoding='utf-8', errors='replace')
+                # For reading, open with both read and write sharing to allow concurrent access
+                handle = kernel32.CreateFileW(
+                    str(file_path),                                    # lpFileName
+                    GENERIC_READ,                                      # dwDesiredAccess
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,               # dwShareMode - allow both read and write sharing
+                    None,                                             # lpSecurityAttributes
+                    OPEN_ALWAYS,                                      # dwCreationDisposition - open existing or create new
+                    FILE_ATTRIBUTE_NORMAL,                            # dwFlagsAndAttributes
+                    None                                              # hTemplateFile
+                )
+                
+                if handle == INVALID_HANDLE_VALUE:
+                    raise OSError(f"Failed to open file with Windows API: {ctypes.GetLastError()}")
+                
+                # Convert Windows handle to Python file descriptor
+                fd = msvcrt.open_osfhandle(handle, os.O_RDONLY)
+                
+                # Return a Python file object from the file descriptor
+                return os.fdopen(fd, mode, encoding='utf-8', errors='replace')
             else:
+                # For writing, use standard open (the Swift command creates the file)
                 return open(file_path, mode, encoding='utf-8')
-        except Exception:
+        except Exception as e:
+            logging.debug("Failed to open file with Windows API, falling back to standard open: %s", e)
             # Fallback to standard open
             return open(file_path, mode, encoding='utf-8', errors='replace' if 'r' in mode else None)
     else:
