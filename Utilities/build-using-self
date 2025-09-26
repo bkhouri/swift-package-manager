@@ -261,6 +261,23 @@ def stream_event_file(event_stream_path: pathlib.Path, stop_event: threading.Eve
     logging.info("Stopped streaming event file")
 
 
+def prepare_event_stream_file(event_stream_path: pathlib.Path) -> None:
+    """Pre-create the event stream file with appropriate sharing permissions on Windows."""
+    try:
+        # Create the directory if it doesn't exist
+        event_stream_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Pre-create the file to ensure proper sharing permissions
+        # This allows both the test command (writer) and streaming thread (reader) to access it
+        with open(event_stream_path, 'w', encoding='utf-8') as f:
+            # Write an empty file - the test command will append to it
+            pass
+        
+        logging.info("Pre-created event stream file with sharing permissions: %s", event_stream_path)
+    except Exception as e:
+        logging.warning("Could not pre-create event stream file: %s", e)
+
+
 def run_test_command_with_streaming(
     test_command: t.List[str],
     event_stream_path: t.Optional[pathlib.Path]
@@ -269,6 +286,9 @@ def run_test_command_with_streaming(
     # If we have an event stream path, run the command and stream the file concurrently
     if enable_event_stream(event_stream_path):
         logging.info("Starting test execution with event streaming...")
+
+        # Pre-create the event stream file with appropriate sharing permissions on Windows
+        prepare_event_stream_file(pathlib.Path(event_stream_path))
 
         # Event to signal the streaming thread to stop
         stop_streaming = threading.Event()
