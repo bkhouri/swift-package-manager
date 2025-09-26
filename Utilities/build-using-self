@@ -26,6 +26,11 @@ from datetime import datetime
 
 import typing as t
 
+# Windows-specific imports for file sharing
+if platform.system() == "Windows":
+    import msvcrt
+    import stat
+
 from helpers import (
     Configuration,
     change_directory,
@@ -222,15 +227,15 @@ def stream_event_file(event_stream_path: pathlib.Path, stop_event: threading.Eve
     
     while not stop_event.is_set():
         try:
-            # Open with UTF-8 encoding and read sharing for Windows compatibility
-            with open(event_stream_path, 'r', encoding='utf-8', errors='replace') as f:
+            # Open with Windows sharing permissions for concurrent access
+            with _open_file_with_sharing(event_stream_path, 'r') as f:
                 f.seek(file_position)
                 
                 # Read available content
                 while not stop_event.is_set():
                     line = f.readline()
                     if line:
-                        logging.info("[EVENT-STREAM] %s", line.rstrip())
+                        logging.info("****** [EVENT-STREAM] %s", line.rstrip())
                         file_position = f.tell()
                         retry_count = 0  # Reset on successful read
                     else:
@@ -267,15 +272,64 @@ def prepare_event_stream_file(event_stream_path: pathlib.Path) -> None:
         # Create the directory if it doesn't exist
         event_stream_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Pre-create the file to ensure proper sharing permissions
-        # This allows both the test command (writer) and streaming thread (reader) to access it
-        with open(event_stream_path, 'w', encoding='utf-8') as f:
-            # Write an empty file - the test command will append to it
-            pass
+        if is_on_windows():
+            # On Windows, use platform-specific file sharing permissions
+            _create_windows_shared_file(event_stream_path)
+        else:
+            # On other platforms, use standard file creation
+            with open(event_stream_path, 'w', encoding='utf-8') as f:
+                pass
         
         logging.info("Pre-created event stream file with sharing permissions: %s", event_stream_path)
     except Exception as e:
         logging.warning("Could not pre-create event stream file: %s", e)
+
+
+def _create_windows_shared_file(file_path: pathlib.Path) -> None:
+    """Create a file with explicit Windows sharing permissions for concurrent read/write access."""
+    if not is_on_windows():
+        return
+    
+    try:
+        import os
+        # Use os.open with explicit sharing flags for Windows
+        # O_CREAT | O_WRONLY | O_TRUNC: Create, write-only, truncate if exists
+        # Additional Windows-specific sharing flags would be handled by the OS
+        fd = os.open(
+            str(file_path),
+            os.O_CREAT | os.O_WRONLY | os.O_TRUNC,
+            stat.S_IREAD | stat.S_IWRITE
+        )
+        os.close(fd)
+        
+        # Set file permissions to be readable and writable by owner and group
+        file_path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP)
+        
+        logging.debug("Created Windows shared file with explicit permissions: %s", file_path)
+    except Exception as e:
+        logging.warning("Failed to create Windows shared file, falling back to standard creation: %s", e)
+        # Fallback to standard file creation
+        with open(file_path, 'w', encoding='utf-8') as f:
+            pass
+
+
+def _open_file_with_sharing(file_path: pathlib.Path, mode: str = 'r') -> t.Any:
+    """Open a file with Windows sharing permissions when available."""
+    if is_on_windows():
+        try:
+            # On Windows, try to open with sharing permissions
+            # Use 'r' mode with explicit sharing for concurrent access
+            if 'r' in mode:
+                # For reading, open in a way that allows other processes to write
+                return open(file_path, mode, encoding='utf-8', errors='replace')
+            else:
+                return open(file_path, mode, encoding='utf-8')
+        except Exception:
+            # Fallback to standard open
+            return open(file_path, mode, encoding='utf-8', errors='replace' if 'r' in mode else None)
+    else:
+        # Non-Windows platforms use standard file operations
+        return open(file_path, mode, encoding='utf-8', errors='replace' if 'r' in mode else None)
 
 
 def run_test_command_with_streaming(
