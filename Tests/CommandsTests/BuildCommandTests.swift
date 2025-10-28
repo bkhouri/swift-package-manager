@@ -1756,6 +1756,101 @@ struct BuildCommandTestCases {
             data.config == .release
         }
     }
+
+    @Suite(
+        .tags(
+            .Feature.CommandLineArguments.Build.DebugInfoFormat,
+        ),
+    )
+    struct DebugInfoFormatTests {
+
+        @Suite
+        struct CodeViewFormatTests {
+            @Test(
+                .skipHostOS(.windows),
+                arguments: SupportedBuildSystemOnAllPlatforms,
+            )
+            func codeViewFormatFailsOnNonWindowsPlatform(
+                buildSystem: BuildSystemProvider.Kind,
+            ) async throws {
+                try await fixture(name: "Resources/Simple") { fixturePath in
+                    await expectThrowsCommandExecutionError(
+                        try await executeSwiftBuild(
+                            fixturePath,
+                            configuration: .debug,
+                            extraArgs: [
+                                "-debug-info-format",
+                                BuildOptions.DebugInfoFormat.codeview.rawValue,
+                            ],
+                            buildSystem: buildSystem,
+                        )
+                    ) {error in
+                        // let expectedMessageRegex = try Regex("error: CodeView debug information is currently not supported on .*")
+                        #expect(error.consoleOutput.contains("error: CodeView debug information is currently not supported on"))
+                    }
+                }
+            }
+
+            @Test(
+                .requireHostOS(.windows),
+                arguments: SupportedBuildSystemOnAllPlatforms,
+            )
+            func codeViewFormatDoesNotFail(
+                buildSystem: BuildSystemProvider.Kind,
+            ) async throws {
+                try await fixture(name: "Resources/Simple") { fixturePath in
+                    await #expect(throws: Never.self) {
+                        try await executeSwiftBuild(
+                            fixturePath,
+                            configuration: .debug,
+                            extraArgs: [
+                                "--very-verbose",
+                                "-debug-info-format",
+                                BuildOptions.DebugInfoFormat.codeview.rawValue,
+                            ],
+                            buildSystem: buildSystem,
+                        )
+                    }
+                }
+            }
+        }
+
+        @Suite
+        struct DwarfFormatTests {
+
+        }
+
+        @Suite
+        struct NonDebugFormatTests {
+            @Test(
+                arguments: SupportedBuildSystemOnAllPlatforms
+            )
+            func debugInfoFormatSetToNone(
+                buildSystem: BuildSystemProvider.Kind,
+            ) async throws {
+                try await fixture(name: "Resources/Simple") { fixturePath in
+                    let (stdout, _) = try await executeSwiftBuild(
+                        fixturePath,
+                        configuration: .debug,
+                        extraArgs: [
+                            "--very-verbose",
+                            "-debug-info-format",
+                            BuildOptions.DebugInfoFormat.none.rawValue,
+                        ],
+                        buildSystem: buildSystem,
+                    )
+
+                    switch buildSystem {
+                        case .native:
+                            #expect(stdout.contains(" -gnone "))
+                            #expect(stdout.contains(" -g0 "))
+                        case .swiftbuild, .xcode:
+                        break
+                    }
+                }
+            }
+        }
+    }
 }
 
 extension Triple {

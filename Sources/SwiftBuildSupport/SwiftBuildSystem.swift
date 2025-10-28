@@ -323,6 +323,9 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
     }
 
     public func build(subset: BuildSubset, buildOutputs: [BuildOutput]) async throws -> BuildResult {
+        if self.buildParameters.debuggingParameters.debugInfoFormat == .codeview {
+            throw Unsupported.debugInfoFormat(.codeview)
+        }
         // If any plugins are part of the build set, compile them now to surface
         // any errors up-front. Returns true if we should proceed with the build
         // or false if not. It will already have thrown any appropriate error.

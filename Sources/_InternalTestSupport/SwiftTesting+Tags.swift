@@ -51,6 +51,7 @@ extension Tag.Feature.Command {
 }
 
 extension Tag.Feature.CommandLineArguments {
+    public enum Build {}
     public enum Experimental {}
     @Tag public static var BuildSystem: Tag
     @Tag public static var BuildTests: Tag
@@ -79,6 +80,9 @@ extension Tag.Feature.CommandLineArguments {
     @Tag public static var Xswiftc: Tag
 }
 
+extension Tag.Feature.CommandLineArguments.Build {
+    @Tag public static var DebugInfoFormat: Tag
+}
 extension Tag.Feature.CommandLineArguments.Experimental {
      @Tag public static var BuildDylibsAsFrameworks: Tag
 }
