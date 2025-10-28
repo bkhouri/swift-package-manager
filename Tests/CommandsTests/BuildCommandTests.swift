@@ -1792,6 +1792,7 @@ struct BuildCommandTestCases {
             }
 
             @Test(
+                .issue("https://github.com/swiftlang/swift-build/issues/871", relationship: .defect),
                 .requireHostOS(.windows),
                 arguments: SupportedBuildSystemOnAllPlatforms,
             )
@@ -1799,7 +1800,7 @@ struct BuildCommandTestCases {
                 buildSystem: BuildSystemProvider.Kind,
             ) async throws {
                 try await fixture(name: "Resources/Simple") { fixturePath in
-                    await #expect(throws: Never.self) {
+                    try await withKnownIssue {
                         try await executeSwiftBuild(
                             fixturePath,
                             configuration: .debug,
@@ -1810,6 +1811,8 @@ struct BuildCommandTestCases {
                             ],
                             buildSystem: buildSystem,
                         )
+                    } when: {
+                        buildSystem == .swiftbuild
                     }
                 }
             }
