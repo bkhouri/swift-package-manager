@@ -36,14 +36,10 @@ struct TestDiscoveryTests {
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     func build(_ buildSystem: BuildSystemProvider.Kind) async throws {
-        try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
-            try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
-                let (stdout, _) = try await executeSwiftBuild(fixturePath, buildSystem: buildSystem)
-                // in "swift build" build output goes to stdout
-                #expect(stdout.contains("Build complete!"))
-            }
-        } when: {
-            buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
+        try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
+            let (stdout, _) = try await executeSwiftBuild(fixturePath, buildSystem: buildSystem)
+            // in "swift build" build output goes to stdout
+            #expect(stdout.contains("Build complete!"))
         }
     }
 
@@ -59,16 +55,12 @@ struct TestDiscoveryTests {
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     func discovery(_ buildSystem: BuildSystemProvider.Kind) async throws {
-        try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
-            try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
-                let (stdout, stderr) = try await executeSwiftTest(fixturePath, extraArgs: ["-vv"], buildSystem: buildSystem)
-                // in "swift test" build output goes to stderr
-                #expect(stderr.contains("Build complete!"))
-                // in "swift test" test output goes to stdout
-                #expect(stdout.contains("Executed 3 tests"))
-            }
-        } when: {
-            buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
+        try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
+            let (stdout, stderr) = try await executeSwiftTest(fixturePath, extraArgs: ["-vv"], buildSystem: buildSystem)
+            // in "swift test" build output goes to stderr
+            #expect(stderr.contains("Build complete!"))
+            // in "swift test" test output goes to stdout
+            #expect(stdout.contains("Executed 3 tests"))
         }
     }
 
@@ -82,8 +74,7 @@ struct TestDiscoveryTests {
         ),
         .IssueWindowsCannotSaveAttachment,
         .issue("https://github.com/swiftlang/swift-build/issues/333", relationship: .defect),
-        .bug("https://github.com/swiftlang/swift-build/issues/13"),
-        // arguments: [BuildSystemProvider.Kind.native],
+        .issue("https://github.com/swiftlang/swift-build/issues/13", relationship: .defect),
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     func nonStandardName(_ buildSystem: BuildSystemProvider.Kind) async throws {
@@ -110,7 +101,7 @@ struct TestDiscoveryTests {
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     func asyncMethods(_ buildSystem: BuildSystemProvider.Kind) async throws {
-        try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
+        // try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
             try await fixture(name: "Miscellaneous/TestDiscovery/Async") { fixturePath in
                 let (stdout, stderr) = try await executeSwiftTest(fixturePath, buildSystem: buildSystem)
                 // in "swift test" build output goes to stderr
@@ -118,9 +109,9 @@ struct TestDiscoveryTests {
                 // in "swift test" test output goes to stdout
                 #expect(stdout.contains("Executed 4 tests"))
             }
-        } when: {
-            buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
-        }
+        // } when: {
+        //     buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
+        // }
     }
 
     // FIXME: eliminate extraneous warnings with --build-system swiftbuild
@@ -132,32 +123,32 @@ struct TestDiscoveryTests {
             .Feature.CommandLineArguments.BuildSystem,
         ),
         .IssueWindowsCannotSaveAttachment,
-        .bug("https://github.com/swiftlang/swift-build/issues/573"),
+        .issue("https://github.com/swiftlang/swift-build/issues/573", relationship: defect),
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     func discovery_whenNoTests(_ buildSystem: BuildSystemProvider.Kind) async throws {
-            try await withKnownIssue(isIntermittent: true) {
+            // try await withKnownIssue(isIntermittent: true) {
             try await fixture(name: "Miscellaneous/TestDiscovery/NoTests") { fixturePath in
                 let (stdout, stderr) = try await executeSwiftTest(fixturePath, buildSystem: buildSystem)
                 // in "swift test" build output goes to stderr
                 #expect(stderr.contains("Build complete!"))
                 // we are expecting that no warning is produced
-                withKnownIssue(isIntermittent: true) {
+                // withKnownIssue(isIntermittent: true) {
                     #expect(!stderr.contains("warning:"))
-                } when: {
-                    buildSystem == .swiftbuild
-                }
+                // } when: {
+                //     buildSystem == .swiftbuild
+                // }
                 // in "swift test" test output goes to stdout
                 #expect(stdout.contains("Executed 0 tests"))
             }
-            } when: {
-                buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
-            }
+            // } when: {
+            //     buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
+            // }
     }
 
     // FIXME: --build-system swiftbuild should support hand-authored entry points.
     @Test(
-        .bug("https://github.com/swiftlang/swift-build/issues/572"),
+        .issue("https://github.com/swiftlang/swift-build/issues/572", relationship: defect),
         .IssueWindowsCannotSaveAttachment,
         .skipHostOS(.macOS),
         .tags(
@@ -200,7 +191,7 @@ struct TestDiscoveryTests {
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     func entryPointOverrideIgnored(_ buildSystem: BuildSystemProvider.Kind) async throws {
-        try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
+        // try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
             try await fixture(name: "Miscellaneous/TestDiscovery/Simple") { fixturePath in
                 let manifestPath = fixturePath.appending(components: "Tests", SwiftModule.defaultTestEntryPointName)
                 try localFileSystem.writeFileContents(manifestPath, string: "fatalError(\"should not be called\")")
@@ -210,9 +201,9 @@ struct TestDiscoveryTests {
                 // in "swift test" test output goes to stdout
                 #expect(!stdout.contains("Executed 1 test"))
             }
-        } when: {
-            buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
-        }
+        // } when: {
+        //     buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
+        // }
     }
 
     @Test(
@@ -225,7 +216,7 @@ struct TestDiscoveryTests {
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     func testExtensions(_ buildSystem: BuildSystemProvider.Kind) async throws {
-        try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
+        // try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
             try await fixture(name: "Miscellaneous/TestDiscovery/Extensions") { fixturePath in
                 let (stdout, stderr) = try await executeSwiftTest(fixturePath, buildSystem: buildSystem)
                 // in "swift test" build output goes to stderr
@@ -246,9 +237,9 @@ struct TestDiscoveryTests {
                 #expect(stdout.contains("SimpleTests4\(delimiter)testExample2"))
                 #expect(stdout.contains("Executed 7 tests"))
             }
-        } when: {
-            buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
-        }
+        // } when: {
+        //     buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
+        // }
     }
 
     @Test(
@@ -261,16 +252,16 @@ struct TestDiscoveryTests {
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     func deprecatedTests(_ buildSystem: BuildSystemProvider.Kind) async throws {
-        try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
+        // try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
             try await fixture(name: "Miscellaneous/TestDiscovery/Deprecation") { fixturePath in
                 let (stdout, stderr) = try await executeSwiftTest(fixturePath, buildSystem: buildSystem)
                 // in "swift test" test output goes to stdout
                 #expect(stdout.contains("Executed 2 tests"))
                 #expect(!stderr.contains("is deprecated"))
             }
-        } when: {
-            buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
-        }
+        // } when: {
+        //     buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
+        // }
     }
 
     @Test(
@@ -283,7 +274,7 @@ struct TestDiscoveryTests {
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     func testSubclassedTestClassTests(_ buildSystem: BuildSystemProvider.Kind) async throws {
-        try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
+        // try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
             try await fixture(name: "Miscellaneous/TestDiscovery/Subclass") { fixturePath in
                 let (stdout, stderr) = try await executeSwiftTest(fixturePath, buildSystem: buildSystem)
                 // in "swift test" build output goes to stderr
@@ -315,8 +306,8 @@ struct TestDiscoveryTests {
                 #expect(stdout.contains("->Module2::Tests1::test11"))
                 #expect(stdout.contains("->Module2::Tests1::test12"))
             }
-        } when: {
-            buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
-        }
+        // } when: {
+        //     buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
+        // }
     }
 }
