@@ -123,7 +123,7 @@ struct TestDiscoveryTests {
             .Feature.CommandLineArguments.BuildSystem,
         ),
         .IssueWindowsCannotSaveAttachment,
-        .issue("https://github.com/swiftlang/swift-build/issues/573", relationship: defect),
+        .issue("https://github.com/swiftlang/swift-build/issues/573", relationship: .defect),
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     func discovery_whenNoTests(_ buildSystem: BuildSystemProvider.Kind) async throws {
@@ -148,7 +148,7 @@ struct TestDiscoveryTests {
 
     // FIXME: --build-system swiftbuild should support hand-authored entry points.
     @Test(
-        .issue("https://github.com/swiftlang/swift-build/issues/572", relationship: defect),
+        .issue("https://github.com/swiftlang/swift-build/issues/572", relationship: .defect),
         .IssueWindowsCannotSaveAttachment,
         .skipHostOS(.macOS),
         .tags(

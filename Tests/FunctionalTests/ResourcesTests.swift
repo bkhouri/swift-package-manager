@@ -35,7 +35,7 @@ struct ResourcesTests{
     func simpleResources(
         buildData: BuildData,
     ) async throws {
-        try await withKnownIssue(isIntermittent: true) {
+        // try await withKnownIssue(isIntermittent: true) {
             try await fixture(name: "Resources/Simple") { fixturePath in
                 var executables = ["SwiftyResource"]
 
@@ -55,9 +55,9 @@ struct ResourcesTests{
                     #expect(output.contains("foo"))
                 }
             }
-        } when: {
-            ProcessInfo.hostOperatingSystem == .windows
-        }
+        // } when: {
+        //     ProcessInfo.hostOperatingSystem == .windows
+        // }
     }
 
     @Test(
@@ -130,7 +130,7 @@ struct ResourcesTests{
     ) async throws {
         let configuration = buildData.config
         let buildSystem = buildData.buildSystem
-        try await withKnownIssue(isIntermittent: true) {
+        // try await withKnownIssue(isIntermittent: true) {
             try await fixture(name: "Resources/Moved") { fixturePath in
                 var executables = ["SwiftyResource"]
 
@@ -177,10 +177,10 @@ struct ResourcesTests{
                     }
                 }
             }
-        } when: {
-            // [2025-12-20T02:55:19.621Z]     SwiftyResource/resource_bundle_accessor.swift:44: Fatal error: unable to find bundle named Resources_SwiftyResource
-            ProcessInfo.hostOperatingSystem == .windows && buildSystem == .swiftbuild
-        }
+        // } when: {
+        //     // [2025-12-20T02:55:19.621Z]     SwiftyResource/resource_bundle_accessor.swift:44: Fatal error: unable to find bundle named Resources_SwiftyResource
+        //     ProcessInfo.hostOperatingSystem == .windows && buildSystem == .swiftbuild
+        // }
     }
 
     @Test(
@@ -196,19 +196,19 @@ struct ResourcesTests{
         buildData: BuildData,
     ) async throws {
         try await fixture(name: "Resources/FoundationlessClient/UtilsWithFoundationPkg") { fixturePath in
-            try await withKnownIssue(isIntermittent: true) {
+            // try await withKnownIssue(isIntermittent: true) {
                 try await executeSwiftBuild(
                     fixturePath,
                     configuration: buildData.config,
                     Xswiftc: ["-warnings-as-errors"],
                     buildSystem: buildData.buildSystem,
                 )
-            } when: {
-                // fails on native and SwiftBuild
-                // failure on SwiftBuild is: [2025-12-20T02:52:32.562Z]     error: failed to save attachment: C:\Users\ContainerAdministrator\AppData\Local\Temp\Resources_FoundationlessClient_UtilsWithFoundationPkg.D2Ir4d\Resources_FoundationlessClient_UtilsWithFoundationPkg\.build\out\Intermediates.noindex\XCBuildData\2d5f9f79f8cadfc30e6f49d9f5323426.xcbuilddata\attachments\99a55b01714d8caeedaaca3a1ca6347f. Error: File exists but is not a directory: C:\Users\ContainerAdministrator\AppData\Local\Temp\Resources_FoundationlessClient_UtilsWithFoundationPkg.D2Ir4d\Resources_FoundationlessClient_UtilsWithFoundationPkg\.build\out\Intermediates.noindex\XCBuildData
-                // failure on native is: [2025-12-20T02:52:32.562Z]     error: encountered an I/O error (code: 514) while reading \\?\C:\Users\ContainerAdministrator\AppData\Local\Temp\Resources_FoundationlessClient_UtilsWithFoundationPkg.0HOUUQ\Resources_FoundationlessClient_UtilsWithFoundationPkg\.build\x86_64-unknown-windows-msvc\debug\UtilsWithFoundationPkg.build\DerivedSources
-                ProcessInfo.hostOperatingSystem == .windows
-            }
+            // } when: {
+            //     // fails on native and SwiftBuild
+            //     // failure on SwiftBuild is: [2025-12-20T02:52:32.562Z]     error: failed to save attachment: C:\Users\ContainerAdministrator\AppData\Local\Temp\Resources_FoundationlessClient_UtilsWithFoundationPkg.D2Ir4d\Resources_FoundationlessClient_UtilsWithFoundationPkg\.build\out\Intermediates.noindex\XCBuildData\2d5f9f79f8cadfc30e6f49d9f5323426.xcbuilddata\attachments\99a55b01714d8caeedaaca3a1ca6347f. Error: File exists but is not a directory: C:\Users\ContainerAdministrator\AppData\Local\Temp\Resources_FoundationlessClient_UtilsWithFoundationPkg.D2Ir4d\Resources_FoundationlessClient_UtilsWithFoundationPkg\.build\out\Intermediates.noindex\XCBuildData
+            //     // failure on native is: [2025-12-20T02:52:32.562Z]     error: encountered an I/O error (code: 514) while reading \\?\C:\Users\ContainerAdministrator\AppData\Local\Temp\Resources_FoundationlessClient_UtilsWithFoundationPkg.0HOUUQ\Resources_FoundationlessClient_UtilsWithFoundationPkg\.build\x86_64-unknown-windows-msvc\debug\UtilsWithFoundationPkg.build\DerivedSources
+            //     ProcessInfo.hostOperatingSystem == .windows
+            // }
         }
     }
 
