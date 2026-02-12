@@ -149,14 +149,27 @@ struct PackageCommandTests {
         #expect(stdout.contains("SEE ALSO: swift build, swift run, swift test \n(Run this command without --help to see possible dynamic plugin commands.)"))
     }
 
-    @Test
-    func commandDoesNotEmitDuplicateSymbols() async throws {
+    @Test(
+        arguments: SupportedBuildSystemOnAllPlatforms,
+    )
+    func commandDoesNotEmitDuplicateSymbols(
+        buildSystem: BuildSystemProvider.Kind,
+    ) async throws {
+        let config = BuildConfiguration.debug
         let duplicateSymbolRegex = try #require(duplicateSymbolRegex)
 
-        let (stdout, stderr) = try await SwiftPM.Package.execute(["--help"])
+        try await withTemporaryDirectory { tempDir in
+            // let (stdout, stderr) = try await SwiftPM.Package.execute(["--help"])
+            let (stdout, stderr) = try await executeSwiftPackage(
+                tempDir,
+                configuration: config,
+                extraArgs: ["--help"],
+                buildSystem: buildSystem,
+            )
 
-        #expect(!stdout.contains(duplicateSymbolRegex))
-        #expect(!stderr.contains(duplicateSymbolRegex))
+            #expect(!stdout.contains(duplicateSymbolRegex))
+            #expect(!stderr.contains(duplicateSymbolRegex))
+        }
     }
 
     @Test
