@@ -854,6 +854,13 @@ public final class SwiftBuildSystem: SPMBuildCore.BuildSystem {
             }
         }
 
+        let stripInstalledProductsValue = if let stripInstalledProducts = buildParameters.stripInstalledProducts {
+            stripInstalledProducts ? "YES" : "NO"
+        } else {
+            "NO"
+        }
+        settings["STRIP_INSTALLED_PRODUCT"] = stripInstalledProductsValue
+
         // FIXME: workaround for old Xcode installations such as what is in CI
         settings["LM_SKIP_METADATA_EXTRACTION"] = "YES"
         if let symbolGraphOptions {

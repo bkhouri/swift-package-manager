@@ -1063,7 +1063,8 @@ public final class SwiftCommandState {
                 forceTestDiscovery: self.options.build.enableTestDiscovery,
                 // backwards compatibility, remove with --enable-test-discovery
                 testEntryPointPath: self.options.build.testEntryPointPath
-            )
+            ),
+            stripInstalledProducts: self.options.build.stripInstalledProducts,
         )
     }
 

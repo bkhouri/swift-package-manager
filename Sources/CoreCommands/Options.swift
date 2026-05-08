@@ -650,6 +650,14 @@ public struct BuildOptions: ParsableArguments {
         /// See `BuildParameters.DebugInfoFormat.none` for details.
         case none
     }
+
+    @Flag(
+        // name: "",
+        inversion: .prefixedEnableDisable,
+        help: .hidden,
+        // Mention it only support SwiftBuild build system
+    )
+    public var stripInstalledProducts: Bool?
 }
 
 public struct LinkerOptions: ParsableArguments {
