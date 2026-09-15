@@ -66,7 +66,7 @@ struct PluginTests {
     }
 
     @Test(
-        .bug("https://github.com/swiftlang/swift-package-manager/issues/8786"),
+        .IssueWindowsRelativePathAssert,
         .requiresSwiftConcurrencySupport,
         .disabled(if: CiEnvironment.runningInSelfHostedPipeline && ProcessInfo.hostOperatingSystem == .windows),
         .tags(
@@ -79,16 +79,12 @@ struct PluginTests {
     func testUseOfBuildToolPluginTargetNoPreBuildCommands(
         buildSystem: BuildSystemProvider.Kind,
     ) async throws {
-        try await withKnownIssue(isIntermittent: true) {
-            try await fixture(name: "Miscellaneous/Plugins/MySourceGenPluginNoPreBuildCommands") { fixturePath in
-                let (_, stderr) = try await executeSwiftTest(
-                    fixturePath,
-                    buildSystem: buildSystem,
-                )
-                #expect(stderr.contains("file(s) which are unhandled; explicitly declare them as resources or exclude from the target"), "expected warning not emitted")
-            }
-        } when: {
-            buildSystem == .swiftbuild
+        try await fixture(name: "Miscellaneous/Plugins/MySourceGenPluginNoPreBuildCommands") { fixturePath in
+            let (_, stderr) = try await executeSwiftTest(
+                fixturePath,
+                buildSystem: buildSystem,
+            )
+            #expect(stderr.contains("file(s) which are unhandled; explicitly declare them as resources or exclude from the target"), "expected warning not emitted")
         }
     }
 
@@ -763,8 +759,7 @@ struct PluginTests {
                     )
 
                     let toolSearchDirectories = [try UserToolchain.default.swiftCompilerPath.parentDirectory]
-                    let success = try await withCheckedThrowingContinuation { continuation in
-                      plugin.invoke(
+                    let success = try await plugin.invoke(
                         action: .performCommand(package: package, arguments: arguments),
                         buildEnvironment: BuildEnvironment(platform: .macOS, configuration: .debug),
                         workers: 1,
@@ -782,12 +777,8 @@ struct PluginTests {
                         modulesGraph: packageGraph,
                         observabilityScope: observability.topScope,
                         callbackQueue: delegateQueue,
-                        delegate: delegate,
-                        completion: {
-                          continuation.resume(with: $0)
-                        }
-                      )
-                    }
+                        delegate: delegate
+                    )
                     if expectFailure {
                         #expect(!success, "expected command to fail, but it succeeded")
                     }
@@ -852,6 +843,34 @@ struct PluginTests {
             #expect(stdout.contains("A message from the remote tool."), "stdout:\n\(stderr)\n\(stdout)")
             #expect(stdout.contains("A message from the local tool."), "stdout:\n\(stderr)\n\(stdout)")
             #expect(stdout.contains("A message from the implied local tool."), "stdout:\n\(stderr)\n\(stdout)")
+        }
+    }
+
+    @Test(
+        .tags(
+            .Feature.Command.Package.Plugin,
+        )
+    )
+    func testPluginAPIsForMixedLanguageTargets() async throws {
+        try await fixture(name: "Miscellaneous/Plugins/MixedTargetPluginAPIs") { fixturePath in
+            let (stdout, _) = try await executeSwiftPackage(
+                fixturePath,
+                extraArgs: ["dump-targets"],
+                buildSystem: .swiftbuild,
+            )
+
+            #expect(stdout.contains("SwiftOnly.type = swift"))
+            #expect(stdout.contains("SwiftOnly.publicHeaders = none"))
+            #expect(stdout.contains("SwiftOnly.headerSearchPaths = []"))
+
+            #expect(stdout.contains("ClangOnly.type = clang"))
+            #expect(stdout.contains("ClangOnly.publicHeaders = include"))
+
+            #expect(stdout.contains("Mixed.type = mixed"))
+            #expect(stdout.contains("Mixed.publicHeaders = include"))
+            #expect(stdout.contains(#"Mixed.swiftDefinitions = ["SWIFT_DEFINITION"]"#))
+            #expect(stdout.contains(#"Mixed.clangDefinitions = ["PREPROCESSOR_MACRO"]"#))
+            #expect(stdout.contains(#"Mixed.headerSearchPaths = ["extra_headers"]"#))
         }
     }
 
@@ -1365,9 +1384,14 @@ struct PluginTests {
                     buildSystem: buildSystem,
                 ).stdout.split(whereSeparator: \.isNewline)
 
+                let binPath = try await getBinPath(
+                    fixturePath,
+                    configuration: config,
+                    buildSystem: buildSystem,
+                )
                 for snippet in snippets {
                     try expectFileExists(
-                        at: fixturePath.appending(components: buildSystem.binPath(for: config) + ["\(snippet)"])
+                        at: binPath.appending("\(snippet)")
                     )
                 }
             }
@@ -1560,6 +1584,53 @@ struct PluginTests {
     }
 
     @Test(
+        "Build-tool plugin crashes surface invocation failure details",
+        .requiresSwiftConcurrencySupport,
+        .issue(
+            "https://github.com/swiftlang/swift-package-manager/issues/10042",
+            relationship: .defect
+        ),
+        .tags(
+            .Feature.Command.Build,
+            .Feature.CommandLineArguments.BuildSystem
+        ),
+        arguments: SupportedBuildSystemOnAllPlatforms
+    )
+    func testBuildToolPluginCrash(
+        buildSystem: BuildSystemProvider.Kind
+    ) async throws {
+        try await fixture(name: "Miscellaneous/Plugins/BuildToolPluginCrash") { fixturePath in
+            let error = try await #require(
+                throws: SwiftPMError.self,
+                "Expected the build to fail when the build-tool plugin crashes"
+            ) {
+                try await executeSwiftBuild(
+                    fixturePath,
+                    buildSystem: buildSystem
+                )
+            }
+
+            guard case SwiftPMError.executionFailure(_, _, let stderr) = error else {
+                Issue.record("Unexpected error type: \(error.interpolationDescription)")
+                return
+            }
+
+            #expect(
+                stderr.contains("plugin process ended by an uncaught signal"),
+                "stderr:\n\(stderr)"
+            )
+            #expect(
+                stderr.contains("intentional build-tool plugin crash"),
+                "stderr:\n\(stderr)"
+            )
+            #expect(
+                stderr.contains("build planning stopped due to build-tool plugin failures"),
+                "stderr:\n\(stderr)"
+            )
+        }
+    }
+
+    @Test(
         .requiresSwiftConcurrencySupport,
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
@@ -1641,7 +1712,7 @@ struct PluginTests {
                 #expect(stdout.contains("Build of product 'MyLocalTool' complete!"), "stdout:\n\(stdout)")
             case .swiftbuild:
                 #expect(stdout.contains("MySourceGenBuildTool-product"), "stdout:\n\(stdout)\nstderr:\n\(stderr)")
-                #expect(stderr.contains("Creating foo.swift from foo.dat"), "stdout:\n\(stdout)\nstderr:\n\(stderr)")
+                #expect(stdout.contains("Creating foo.swift from foo.dat"), "stdout:\n\(stdout)\nstderr:\n\(stderr)")
                 #expect(stdout.contains("Build complete!"), "stdout:\n\(stdout)\nstderr:\n\(stderr)")
             case .xcode:
                 Issue.record("Test expected have not been considered")
@@ -1684,13 +1755,11 @@ struct PluginTests {
     }
 
     @Test(
-        .IssueWindowsLongPath,
         arguments: SupportedBuildSystemOnAllPlatforms,
     )
     func testCommandPluginBuildingPackageUsingBuildToolPlugin(
         buildSystem: BuildSystemProvider.Kind,
     ) async throws {
-        try await withKnownIssue("Windows builds encounter long path handling issues", isIntermittent: true) {
             try await fixture(name: "Miscellaneous/Plugins/CommandPluginBuildingBuildToolPlugin") { fixturePath in
                 let (stdout, stderr) = try await executeSwiftPackage(
                     fixturePath,
@@ -1699,8 +1768,5 @@ struct PluginTests {
                 )
                 #expect(stdout.contains("Built successfully"))
             }
-        } when: {
-            buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
-        }
     }
 }

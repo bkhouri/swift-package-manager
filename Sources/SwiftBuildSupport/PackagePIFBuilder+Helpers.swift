@@ -26,6 +26,7 @@ import class Basics.ThreadSafeArrayStore
 
 import enum PackageModel.BuildConfiguration
 import enum PackageModel.BuildSettings
+import struct PackageModel.ClangModuleInfo
 import class PackageModel.ClangModule
 import struct PackageModel.ConfigurationCondition
 import class PackageModel.Manifest
@@ -38,6 +39,7 @@ import struct PackageModel.Platform
 import struct PackageModel.PlatformDescription
 import struct PackageModel.PlatformRegistry
 import struct PackageModel.PlatformsCondition
+import struct PackageModel.PlatformVersion
 import class PackageModel.PluginModule
 import class PackageModel.Product
 import enum PackageModel.ProductType
@@ -365,6 +367,9 @@ extension PackageModel.BuildSettings.Declaration {
         case .SWIFT_VERSION:
             false
 
+        case .SWIFT_OBJC_BRIDGING_HEADER, .SWIFT_BRIDGING_HEADER_IS_INTERNAL:
+            false
+
         // C family.
         case .GCC_PREPROCESSOR_DEFINITIONS, .HEADER_SEARCH_PATHS, .OTHER_CFLAGS, .OTHER_CPLUSPLUSFLAGS:
             true
@@ -460,7 +465,7 @@ extension PackageGraph.ResolvedModule {
                 iOSVersion: iOSDeploymentTarget
             )
 
-            if let mappedVersion {
+            if let mappedVersion, PlatformVersion(mappedVersion) >= targetPlatform.oldestSupportedVersion {
                 deploymentTargets[targetPlatform] = mappedVersion
             }
         }
@@ -491,16 +496,22 @@ extension PackageGraph.ResolvedModule {
         try! AbsolutePath(validating: self.sources.root.pathString)
     }
 
-    /// Absolute paths to each of the header files  (*only* applies to C-language modules).
-    var headerFileAbsolutePaths: [AbsolutePath] {
-        guard let clangTarget = self.underlying as? ClangModule else { return [] }
-        return clangTarget.headers
+    private var clangModuleInfo: ClangModuleInfo? {
+        if let clangModule = self.underlying as? ClangModule {
+            return clangModule.clangModuleInfo
+        }
+        return (self.underlying as? SwiftModule)?.clangModuleInfo
     }
 
-    /// Relative path of the `include` directory (*only* applies to C-language modules).
+    /// Absolute paths to each of the header files.
+    var headerFileAbsolutePaths: [AbsolutePath] {
+        self.clangModuleInfo?.headers ?? []
+    }
+
+    /// Relative path of the `include` directory (applies to C-language and mixed-language modules).
     var includeDirRelativePath: RelativePath? {
-        guard let clangModule = self.underlying as? ClangModule else { return nil }
-        let relativePath = clangModule.includeDir.relative(to: self.sources.root).pathString
+        guard let includeDir = self.clangModuleInfo?.includeDir else { return nil }
+        let relativePath = includeDir.relative(to: self.sources.root).pathString
         return try! RelativePath(validating: relativePath)
     }
 
@@ -510,28 +521,30 @@ extension PackageGraph.ResolvedModule {
         return self.sourceDirAbsolutePath.appending(includeDirRelativePath)
     }
 
-    /// Module map type (*only* applies to C-language modules).
+    /// Module map type.
     var moduleMapType: ModuleMapType? {
-        guard let clangModule = self.underlying as? ClangModule else { return nil }
-        return clangModule.moduleMapType
+        self.clangModuleInfo?.moduleMapType
     }
 
-    /// The C language standard for which the module is configured (*only* applies to C-language modules).
+    /// The C language standard for which the module is configured.
     var cLanguageStandard: String? {
-        guard let clangModule = self.underlying as? ClangModule else { return nil }
-        return clangModule.cLanguageStandard
+        self.clangModuleInfo?.cLanguageStandard
     }
 
-    /// The C++ language standard for which the module is configured (*only* applies to C-language modules).
+    /// The C++ language standard for which the module is configured.
     var cxxLanguageStandard: String? {
-        guard let clangTarget = self.underlying as? ClangModule else { return nil }
-        return clangTarget.cxxLanguageStandard
+        self.clangModuleInfo?.cxxLanguageStandard
     }
 
-    /// Whether or not this module contains C++ sources (*only* applies to C-language modules).
+    /// Whether or not this module contains C++ sources.
     var isCxx: Bool {
-        guard let clangTarget = self.underlying as? ClangModule else { return false }
-        return clangTarget.isCXX
+        if let clangModule = self.underlying as? ClangModule {
+            return clangModule.isCXX
+        }
+        if let swiftModule = self.underlying as? SwiftModule {
+            return swiftModule.containsCXX
+        }
+        return false
     }
 
     /// The list of swift versions declared by the manifest.
@@ -543,6 +556,11 @@ extension PackageGraph.ResolvedModule {
     /// Is this a Swift module?
     var usesSwift: Bool {
         self.declaredSwiftVersions != nil
+    }
+
+    /// Whether this module mixes Swift and C-family sources.
+    var isMixedLanguageModule: Bool {
+        (self.underlying as? SwiftModule)?.isMixedLanguage ?? false
     }
 
     /// Swift language version for which the module is configured.
@@ -702,7 +720,7 @@ extension PackageGraph.ResolvedModule {
     func computeAllBuildSettings(observabilityScope: ObservabilityScope, forRemotePackage: Bool) -> AllBuildSettings {
         var allSettings = AllBuildSettings()
 
-        for (declaration, settingsAssigments) in self.underlying.buildSettings.assignments {
+        for (declaration, settingsAssigments) in self.underlying.buildSettings.assignments.sorted(by: { $0.key < $1.key }) {
             for settingAssignment in settingsAssigments {
                 // Create a build setting value; in some cases there
                 // isn't a direct mapping to Swift Build build settings.
@@ -969,8 +987,8 @@ extension PackageGraph.ResolvedProduct {
 }
 
 extension PackageGraph.ResolvedModule {
-    func recursivelyTraverseDependencies(with block: (ResolvedModule.Dependency) -> Void) {
-        [self].recursivelyTraverseDependencies(with: block)
+    func recursivelyTraverseTransitiveLinkageDependencies(includeDependenciesOfMacros: Set<ResolvedModule.ID>, with block: (ResolvedModule.Dependency) -> Void) {
+        [self].recursivelyTraverseTransitiveLinkageDependencies(includeDependenciesOfMacros: includeDependenciesOfMacros, with: block)
     }
 
     func addParseAsLibrarySettings(to settings: inout BuildSettings, toolsVersion: ToolsVersion, fileSystem: FileSystem) {
@@ -996,9 +1014,9 @@ extension PackageGraph.ResolvedModule {
 }
 
 extension Collection<PackageGraph.ResolvedModule> {
-    /// Recursively applies a block to each of the *dependencies* of the given module, in topological sort order.
+    /// Recursively applies a block to each of the linkage dependencies of the given module, in topological sort order.
     /// Each module or product dependency is visited only once.
-    func recursivelyTraverseDependencies(with block: (ResolvedModule.Dependency) -> Void) {
+    func recursivelyTraverseTransitiveLinkageDependencies(includeDependenciesOfMacros: Set<ResolvedModule.ID>, with block: (ResolvedModule.Dependency) -> Void) {
         var moduleIDsSeen: Set<ResolvedModule.ID> = []
         var productIDsSeen: Set<ResolvedProduct.ID> = []
 
@@ -1008,10 +1026,20 @@ extension Collection<PackageGraph.ResolvedModule> {
                 let (unseenModule, _) = moduleIDsSeen.insert(moduleDependency.id)
                 guard unseenModule else { return }
 
-                // Do not traverse into *macro* or *plugin* dependencies.
-                // Macros run at compile time and their dependencies should not be linked into the client.
-                // Plugins run at build time and their dependencies should not be linked into the client neither.
-                if ![.macro, .plugin].contains(moduleDependency.underlying.type) {
+                // Do not traverse into *macro* or *plugin* dependencies unless explicitly requested.
+                // Macros run at compile time and their dependencies should not be linked into the client, unless a client includes their testable variant.
+                // Plugins run at build time and their dependencies should not be linked into the client.
+                let stopTraversal: Bool
+                switch moduleDependency.type {
+                case .macro:
+                    stopTraversal = !includeDependenciesOfMacros.contains(moduleDependency.id)
+                case .plugin:
+                    stopTraversal = true
+                default:
+                    stopTraversal = false
+                }
+
+                if !stopTraversal {
                     for dependency in moduleDependency.dependencies {
                         visitDependency(dependency)
                     }
@@ -1173,6 +1201,13 @@ extension ProjectModel.BuildSettings {
 
         // Are we building a framework?
         if !createDylibForDynamicProducts {
+            // Disambiguate the framework's name for automatic library products so the built.
+            // We deliberately scope this to automatic products to match the
+            // previous PIF builder behavior
+            if let product, product.type == .library(.automatic) {
+                self[.PRODUCT_NAME] = PackagePIFBuilder.computePackageProductFrameworkName(productName: productName)
+            }
+
             // Apply delegate overrides for *executable name* and *bundle identifier prefix* on frameworks.
             // This can be used by SwiftPM clients to disambiguate framework names and bundle IDs, if necessary.
             if let product {
@@ -1213,6 +1248,10 @@ extension ProjectModel.BuildSettings.SingleValueSetting {
         switch declaration {
         case .SWIFT_VERSION:
             self = .SWIFT_VERSION
+        case .SWIFT_OBJC_BRIDGING_HEADER:
+            self = .SWIFT_OBJC_BRIDGING_HEADER
+        case .SWIFT_BRIDGING_HEADER_IS_INTERNAL:
+            self = .SWIFT_BRIDGING_HEADER_IS_INTERNAL
         default:
             return nil
         }

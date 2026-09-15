@@ -204,8 +204,9 @@ public final class UserToolchain: Toolchain {
         let result: AsyncProcessResult
         let compilerOutput: String
         let compilerStderr: String
+        let command = [swiftCompiler.pathString, "-print-target-info"]
         do {
-            result = try AsyncProcess.popen(args: swiftCompiler.pathString, "-print-target-info")
+            result = try AsyncProcess.popen(arguments: command)
             compilerOutput = try result.utf8Output().spm_chomp()
             compilerStderr = try result.utf8stderrOutput().spm_chomp()
         } catch {
@@ -217,8 +218,15 @@ public final class UserToolchain: Toolchain {
         do {
             return try JSON(string: compilerOutput)
         } catch {
+            let errMsg = [
+                "Failed to parse target info JSON from Swift frontend while executing command '\(command.joined(separator: " "))'.",
+                "Compiler exited with status '\(result.exitStatus)'.",
+                "Raw compiler stdout: \(compilerOutput)",
+                "Raw compiler stderr: \(compilerStderr)",
+                "Error: \(error.interpolationDescription)",
+            ]
             throw InternalError(
-                "Failed to parse target info (\(error.interpolationDescription)).\nCompiler exited with staus \(result.exitStatus).\nRaw compiler stdout: \(compilerOutput)\nRaw compiler stderr: \(compilerStderr)"
+                errMsg.joined(separator: "\n")
             )
         }
     }
@@ -951,7 +959,16 @@ public final class UserToolchain: Toolchain {
             )
         }
 
-        let metalToolchain = try? Self.deriveMetalToolchainPath(fileSystem: fileSystem, triple: triple, environment: environment)
+        let metalToolchain: (path: AbsolutePath, identifier: String)?
+        if case .custom(_, let useXcrun) = searchStrategy, !useXcrun {
+            metalToolchain = nil
+        } else {
+            metalToolchain = try? Self.deriveMetalToolchainPath(
+                fileSystem: fileSystem,
+                triple: triple,
+                environment: environment
+            )
+        }
 
         self.configuration = .init(
             librarianPath: librarianPath,
@@ -1009,19 +1026,35 @@ public final class UserToolchain: Toolchain {
             // this is the normal case when using the toolchain
             let librariesPath = applicationPath.parentDirectory.appending(components: "lib", "swift", "pm")
             if fileSystem.exists(librariesPath) {
+                // Check if we have frameworks there and hook them up
+                let manifestFrameworksPath = librariesPath.appending(components: "ManifestAPI", "PackageDescription.framework")
+                let pluginFrameworksPath = librariesPath.appending(components: "PluginAPI", "PackagePlugin.framework")
+                if fileSystem.exists(manifestFrameworksPath), fileSystem.exists(pluginFrameworksPath) {
+                    return .init(
+                        manifestLibraryPath: manifestFrameworksPath,
+                        pluginLibraryPath: pluginFrameworksPath
+                    )
+                }
                 return .init(root: librariesPath)
             }
 
             // this tests if we are debugging / testing SwiftPM with Xcode
-            let manifestFrameworksPath = applicationPath.appending(
-                components: "PackageFrameworks",
-                "PackageDescription.framework"
-            )
+            let manifestFrameworksPath = applicationPath.appending(components: "PackageFrameworks", "PackageDescription.framework")
             let pluginFrameworksPath = applicationPath.appending(components: "PackageFrameworks", "PackagePlugin.framework")
             if fileSystem.exists(manifestFrameworksPath), fileSystem.exists(pluginFrameworksPath) {
                 return .init(
                     manifestLibraryPath: manifestFrameworksPath,
                     pluginLibraryPath: pluginFrameworksPath
+                )
+            }
+
+            // The frameworks may also appear at the root of the applicationPath
+            let manifestFrameworksRootPath = applicationPath.appending("PackageDescription.framework")
+            let pluginFrameworksRootPath = applicationPath.appending("PackagePlugin.framework")
+            if fileSystem.exists(manifestFrameworksRootPath), fileSystem.exists(pluginFrameworksRootPath) {
+                return .init(
+                    manifestLibraryPath: manifestFrameworksRootPath,
+                    pluginLibraryPath: pluginFrameworksRootPath
                 )
             }
 
@@ -1351,10 +1384,15 @@ public final class UserToolchain: Toolchain {
         configuration.swiftPMLibrariesLocation
     }
 
+    /// The path to XCTest.
+    ///
+    /// - Important: On Darwin, this path is to the `xctest` command-line executable.
+    ///   On Windows, it is to the directory containing `XCTest.dll`.
     public var xctestPath: AbsolutePath? {
         configuration.xctestPath
     }
 
+    /// The path to the directory containing the Swift Testing framework or library.
     public var swiftTestingPath: AbsolutePath? {
         configuration.swiftTestingPath
     }

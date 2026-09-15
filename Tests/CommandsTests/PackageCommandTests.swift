@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift open source project
 //
-// Copyright (c) 2014-2025 Apple Inc. and the Swift project authors
+// Copyright (c) 2014-2026 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -804,7 +804,8 @@ struct PackageCommandTests {
                     buildSystem: buildSystem,
                 )
                 let path = try SwiftPM.packagePath(for: "Foo", packageRoot: packageRoot)
-                #expect(try GitRepository(path: path).getTags() == ["1.2.3"])
+                let resolvedTags = try await GitRepository(path: path).getTags()
+                #expect(resolvedTags == ["1.2.3"])
             }
         }
 
@@ -832,7 +833,8 @@ struct PackageCommandTests {
                 do {
                     let checkoutPath = try SwiftPM.packagePath(for: "Foo", packageRoot: packageRoot)
                     let checkoutRepo = GitRepository(path: checkoutPath)
-                    #expect(try checkoutRepo.getTags() == ["1.2.3"])
+                    let checkoutTags = try await checkoutRepo.getTags()
+                    #expect(checkoutTags == ["1.2.3"])
                     _ = try checkoutRepo.revision(forTag: "1.2.3")
                 }
 
@@ -1246,7 +1248,6 @@ struct PackageCommandTests {
             .Feature.Command.Package.DumpSymbolGraph,
         ),
         .issue("https://github.com/swiftlang/swift-package-manager/issues/8848", relationship: .defect),
-        .IssueWindowsLongPath,
         .requiresSymbolgraphExtract,
         arguments: [BuildSystemProvider.Kind.swiftbuild],
         [
@@ -1312,11 +1313,119 @@ struct PackageCommandTests {
     }
 
     @Test(
+        .requiresSymbolgraphExtract,
+        .tags(
+            .Feature.Command.Package.CommandPlugin
+        ),
+        arguments:
+        SupportedBuildSystemOnAllPlatforms,
+        [
+            (["--traits", "Package10Trait1"], false, "TypeGatedByPackage10Trait1", "TypeGatedByPackage10Trait2"),
+            (["--traits", "Package10Trait2"], false, "TypeGatedByPackage10Trait2", "TypeGatedByPackage10Trait1"),
+            (["--disable-default-traits"], false, "hello", "TypeGatedByPackage10Trait1"),
+            (["--traits", "NonExistentTrait"], true, nil, nil),
+        ]
+    )
+    func dumpSymbolGraph_respectsEnabledTraits(
+        buildSystem: BuildSystemProvider.Kind,
+        testCase: (arguments: [String], errorOut: Bool, expected: String?, unexpected: String?)
+    ) async throws {
+        let config = BuildConfiguration.debug
+        try await fixture(
+            name: "Traits",
+            removeFixturePathOnDeinit: true
+        ) { fixturePath in
+            let packagePath = fixturePath.appending("Package10")
+            let symbolGraphExtractorPath = try UserToolchain.default.getSymbolGraphExtract()
+
+            let symbolGraphOutputDir = fixturePath.appending("symbolgraph")
+            if testCase.errorOut {
+                // Enabling a trait the package doesn't define is an error.
+                await #expect(throws: SwiftPMError.self) {
+                    try await execute(
+                        ["dump-symbol-graph"] + testCase.arguments + ["--output-dir", symbolGraphOutputDir.pathString],
+                        packagePath: packagePath,
+                        env: ["SWIFT_SYMBOLGRAPH_EXTRACT": symbolGraphExtractorPath.pathString],
+                        configuration: config,
+                        buildSystem: BuildSystemProvider.Kind.swiftbuild
+                    )
+                }
+                return
+            }
+            await #expect(throws: Never.self) {
+                try await execute(
+                    ["dump-symbol-graph"] + testCase.arguments + ["--output-dir", symbolGraphOutputDir.pathString],
+                    packagePath: packagePath,
+                    env: ["SWIFT_SYMBOLGRAPH_EXTRACT": symbolGraphExtractorPath.pathString],
+                    configuration: config,
+                    buildSystem: BuildSystemProvider.Kind.swiftbuild
+                )
+            }
+            let symbolGraphPath = symbolGraphOutputDir.appending(component: "Package10Library1.symbols.json")
+            try #require(
+                localFileSystem.exists(symbolGraphPath),
+                "Failed to extract symbol graph"
+            )
+            let symbolGraphData = try Data(contentsOf: URL(fileURLWithPath: symbolGraphPath.pathString))
+            #expect(throws: Never.self) {
+                try JSONSerialization.jsonObject(with: symbolGraphData)
+            }
+            let JSONText = String(decoding: symbolGraphData, as: UTF8.self)
+            let expectedTrait = try #require(testCase.expected)
+            let nonExpectedTrait = try #require(testCase.unexpected)
+            #expect(JSONText.contains(expectedTrait))
+            #expect(!JSONText.contains(nonExpectedTrait))
+        }
+    }
+
+    @Test(
+        .requiresSymbolgraphExtract,
+        .tags(
+            .Feature.Command.Package.CommandPlugin
+        ),
+        arguments: SupportedBuildSystemOnAllPlatforms
+    )
+    func commandPluginSymbolGraph_respectsEnabledTraits(
+        buildSystem: BuildSystemProvider.Kind
+    ) async throws {
+        let config = BuildConfiguration.debug
+        try await fixture(
+            name: "Traits",
+            removeFixturePathOnDeinit: true
+        ) { fixturePath in
+            let packagePath = fixturePath.appending("Package10")
+
+            let (stdout, _) = try await execute(
+                ["--traits", "Package10Trait1", "extract"],
+                packagePath: packagePath,
+                configuration: config,
+                buildSystem: buildSystem
+            )
+
+            // The plugin prints the symbol graph directory of the first target.
+            let line = try #require(
+                stdout.split(whereSeparator: \.isNewline).first,
+                "no symbol graph directory in output"
+            )
+            let symbolGraphDirectory = try AbsolutePath(
+                validating: String(line).trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            let symbolGraphPath = symbolGraphDirectory.appending(component: "Package10Library1.symbols.json")
+            let symbolGraphData = try Data(contentsOf: URL(fileURLWithPath: symbolGraphPath.pathString))
+            #expect(throws: Never.self) {
+                try JSONSerialization.jsonObject(with: symbolGraphData)
+            }
+            let JSONText = String(decoding: symbolGraphData, as: UTF8.self)
+            #expect(JSONText.contains("TypeGatedByPackage10Trait1"))
+            #expect(!JSONText.contains("TypeGatedByPackage10Trait2"))
+        }
+    }
+
+    @Test(
         .requireSwift6_3,
         .tags(
             .Feature.Command.Package.DumpSymbolGraph,
         ),
-        .IssueWindowsLongPath,
         .requiresSymbolgraphExtract,
         arguments: [BuildSystemProvider.Kind.swiftbuild],
     )
@@ -1367,6 +1476,31 @@ struct PackageCommandTests {
         ),
     )
     struct CompletionToolCommandTests {
+        @Test(
+            arguments: [
+                "generate-bash-script",
+                "generate-zsh-script",
+                "generate-fish-script",
+            ]
+        )
+        func generateScriptDoesNotCreateScratchDirectory(mode: String) async throws {
+            try await withTemporaryDirectory { temporaryDirectory in
+                let process = AsyncProcess(
+                    arguments: [
+                        SwiftPM.Package.xctestBinaryPath.pathString,
+                        "completion-tool",
+                        mode,
+                    ],
+                    workingDirectory: temporaryDirectory
+                )
+                try process.launch()
+                let result = try await process.waitUntilExit()
+
+                #expect(result.exitStatus == .terminated(code: 0))
+                #expect(!localFileSystem.exists(temporaryDirectory.appending(".build")))
+            }
+        }
+
         @Test(
             arguments: SupportedBuildSystemOnAllPlatforms,
         )
@@ -3196,7 +3330,11 @@ struct PackageCommandTests {
             )
 
             // Path to the executable.
-            let binPath = try fooPath.appending(components: buildSystem.binPath(for: config))
+            let binPath = try await getBinPath(
+                fooPath,
+                configuration: config,
+                buildSystem: buildSystem,
+            )
             let exec = [
                 binPath.appending("foo").pathString
             ]
@@ -3327,7 +3465,11 @@ struct PackageCommandTests {
                 buildSystem: buildSystem,
             )
             let buildPath = packageRoot.appending(".build")
-            let binPath = try buildPath.appending(components: buildSystem.binPath(for: config, scratchPath: []))
+            let binPath = try await getBinPath(
+                packageRoot,
+                configuration: config,
+                buildSystem: buildSystem,
+            )
             let binFile = binPath.appending(executableName("Bar"))
             expectFileExists(at: binFile)
             #expect(localFileSystem.isDirectory(buildPath))
@@ -3373,7 +3515,11 @@ struct PackageCommandTests {
                 buildSystem: buildSystem
             )
             let buildPath = packageRoot.appending(".build")
-            let binPath = try buildPath.appending(components: buildSystem.binPath(for: config, scratchPath: [], ))
+            let binPath = try await getBinPath(
+                packageRoot,
+                configuration: config,
+                buildSystem: buildSystem,
+            )
             let binFile = binPath.appending(executableName("Bar"))
             expectFileExists(at: binFile)
             #expect(localFileSystem.isDirectory(buildPath))
@@ -3540,7 +3686,7 @@ struct PackageCommandTests {
             let barPath = fixturePath.appending("bar")
             let barRepo = GitRepository(path: barPath)
             try barRepo.checkout(newBranch: "YOLO")
-            let yoloRevision = try barRepo.getCurrentRevision()
+            let yoloRevision = try await barRepo.getCurrentRevision()
 
             // Try to resolve `bar` at a branch.
             do {
@@ -3596,10 +3742,6 @@ struct PackageCommandTests {
         let config = BuildConfiguration.debug
         try await fixture(name: "Miscellaneous/PackageEdit", createGitRepo: true) { fixturePath in
             let fooPath = fixturePath.appending("foo")
-            let binPath = try fooPath.appending(components: buildSystem.binPath(for: config))
-            let exec = [
-                binPath.appending("foo").pathString
-            ]
 
             // Build and check.
             _ = try await executeSwiftBuild(
@@ -3607,6 +3749,14 @@ struct PackageCommandTests {
                 configuration: config,
                 buildSystem: buildSystem,
             )
+            let binPath = try await getBinPath(
+                fooPath,
+                configuration: config,
+                buildSystem: buildSystem,
+            )
+            let exec = [
+                binPath.appending("foo").pathString
+            ]
             let value = try await AsyncProcess.checkNonZeroExit(arguments: exec).spm_chomp()
             #expect(value == "\(5)")
 
@@ -3741,10 +3891,6 @@ struct PackageCommandTests {
     }
 
     @Test(
-        .issue(
-            "error: Package.resolved file is corrupted or malformed, needs investigation",
-            relationship: .defect
-        ),
         .tags(
             .Feature.Command.Package.Resolve,
         ),
@@ -3754,7 +3900,6 @@ struct PackageCommandTests {
         buildSystem: BuildSystemProvider.Kind,
     ) async throws {
         let config = BuildConfiguration.debug
-        // try XCTSkipOnWindows(because: "error: Package.resolved file is corrupted or malformed, needs investigation")
         func writeResolvedFile(
             packageDir: AbsolutePath,
             repositoryURL: String,
@@ -3784,7 +3929,7 @@ struct PackageCommandTests {
                     """
             )
         }
-        try await withKnownIssue(isIntermittent: true) {
+
             try await testWithTemporaryDirectory { tmpPath in
                 let packageDir = tmpPath.appending(components: "library")
                 try localFileSystem.writeFileContents(
@@ -3815,7 +3960,7 @@ struct PackageCommandTests {
                 try depGit.tag(name: "1.0.0")
 
                 let initialRevision = try depGit.revision(forTag: "1.0.0")
-                let repositoryURL = #"file://\#(packageDir.pathString)"#
+                let repositoryURL = packageDir.asURL.absoluteString
 
                 let clientDir = tmpPath.appending(components: "client")
                 try localFileSystem.writeFileContents(
@@ -3900,9 +4045,6 @@ struct PackageCommandTests {
                     #expect(!err.contains("Fetching \(repositoryURL)"))
                 }
             }
-        } when: {
-            ProcessInfo.hostOperatingSystem == .windows
-        }
     }
 
     @Test(
@@ -3986,39 +4128,6 @@ struct PackageCommandTests {
         @Test(
             arguments: SupportedBuildSystemOnAllPlatforms,
         )
-        func mirrorConfigDeprecation(
-            buildSystem: BuildSystemProvider.Kind,
-        ) async throws {
-            let config = BuildConfiguration.debug
-            try await testWithTemporaryDirectory { fixturePath in
-                localFileSystem.createEmptyFiles(
-                    at: fixturePath,
-                    files:
-                        "/Sources/Foo/Foo.swift",
-                    "/Package.swift"
-                )
-
-                let (_, stderr) = try await execute(
-                    [
-                        "config", "set-mirror", "--package-url", "https://github.com/foo/bar", "--mirror-url",
-                        "https://mygithub.com/foo/bar",
-                    ],
-                    packagePath: fixturePath,
-                    configuration: config,
-                    buildSystem: buildSystem,
-                )
-                #expect(
-                    stderr.contains("warning: '--package-url' option is deprecated; use '--original' instead")
-                )
-                #expect(
-                    stderr.contains("warning: '--mirror-url' option is deprecated; use '--mirror' instead")
-                )
-            }
-        }
-
-        @Test(
-            arguments: SupportedBuildSystemOnAllPlatforms,
-        )
         func mirrorConfig(
             buildSystem: BuildSystemProvider.Kind,
         ) async throws {
@@ -4027,8 +4136,11 @@ struct PackageCommandTests {
                 let fs = localFileSystem
                 let packageRoot = fixturePath.appending("Foo")
                 let configOverride = fixturePath.appending("configoverride")
-                let configFile = Workspace.DefaultLocations.mirrorsConfigurationFile(
+                let localConfigFile = Workspace.DefaultLocations.mirrorsConfigurationFile(
                     forRootPackage: packageRoot
+                )
+                let sharedConfigFile = Workspace.DefaultLocations.mirrorsConfigurationFile(
+                    at: try fs.swiftPMConfigurationDirectory
                 )
 
                 fs.createEmptyFiles(
@@ -4060,7 +4172,19 @@ struct PackageCommandTests {
                     configuration: config,
                     buildSystem: buildSystem,
                 )
-                #expect(fs.isFile(configFile))
+                #expect(fs.isFile(localConfigFile))
+
+                // Test writing.
+                try await execute(
+                    [
+                        "config", "set-mirror", "--global", "--original", "https://github.com/foo/bar", "--mirror",
+                        "https://globalgithub.com/foo/bar",
+                    ],
+                    packagePath: packageRoot,
+                    configuration: config,
+                    buildSystem: buildSystem,
+                )
+                #expect(fs.isFile(sharedConfigFile))
 
                 // Test env override.
                 try await execute(
@@ -4086,6 +4210,13 @@ struct PackageCommandTests {
                 )
                 #expect(stdout.spm_chomp() == "https://mygithub.com/foo/bar")
                 (stdout, _) = try await execute(
+                    ["config", "get-mirror", "--global", "--original", "https://github.com/foo/bar"],
+                    packagePath: packageRoot,
+                    configuration: config,
+                    buildSystem: buildSystem,
+                )
+                #expect(stdout.spm_chomp() == "https://globalgithub.com/foo/bar")
+                (stdout, _) = try await execute(
                     [
                         "config", "get-mirror", "--original",
                         "git@github.com:swiftlang/swift-package-manager.git",
@@ -4110,6 +4241,14 @@ struct PackageCommandTests {
                         buildSystem: buildSystem,
                     )
                 }
+                await check(stderr: "not found\n") {
+                    try await execute(
+                        ["config", "get-mirror", "--global", "--original", "git@github.com:swiftlang/swift-package-manager.git"],
+                        packagePath: packageRoot,
+                        configuration: config,
+                        buildSystem: buildSystem,
+                    )
+                }
 
                 // Test deletion.
                 try await execute(
@@ -4128,14 +4267,15 @@ struct PackageCommandTests {
                     buildSystem: buildSystem,
                 )
 
-                await check(stderr: "not found\n") {
-                    try await execute(
-                        ["config", "get-mirror", "--original", "https://github.com/foo/bar"],
-                        packagePath: packageRoot,
-                        configuration: config,
-                        buildSystem: buildSystem,
-                    )
-                }
+                // Still found via global
+                (stdout, _) = try await execute(
+                    ["config", "get-mirror", "--original", "https://github.com/foo/bar"],
+                    packagePath: packageRoot,
+                    configuration: config,
+                    buildSystem: buildSystem,
+                )
+                #expect(stdout.spm_chomp() == "https://globalgithub.com/foo/bar")
+
                 await check(stderr: "not found\n") {
                     try await execute(
                         [
@@ -4942,6 +5082,52 @@ struct PackageCommandTests {
                         case .xcode:
                             break
                     }
+                }
+            }
+        }
+
+        @Test(
+            .tags(
+              .Feature.Command.Build,
+              .Feature.PackageType.BuildToolPlugin
+            ),
+            .requiresSwiftConcurrencySupport,
+            arguments: SupportedBuildSystemOnAllPlatforms,
+        )
+        func buildToolPluginCompilerErrorIsVisible(
+            buildSystem: BuildSystemProvider.Kind,
+        ) async throws {
+            let config = BuildConfiguration.debug
+            try await fixture(name: "Miscellaneous/Plugins/BuildToolPluginCompilationError") { packageDir in
+                try localFileSystem.writeFileContents(
+                    packageDir.appending(components: "Plugins", "MyPlugin", "plugin.swift"),
+                    string: """
+                    import PackagePlugin
+
+                    @main
+                    struct MyBuildToolPlugin: BuildToolPlugin {
+                        func createBuildCommands(
+                            context: PluginContext,
+                            target: Target
+                        ) throws -> [Command] {
+                            let _ = intentionalCompilerError
+                            return []
+                        }
+                    }
+                    """
+                )
+
+                await expectThrowsCommandExecutionError(
+                    try await executeSwiftBuild(
+                        packageDir,
+                        configuration: config,
+                        buildSystem: buildSystem,
+                    )
+                ) { error in
+                    #expect(
+                        error.consoleOutput.contains("intentionalCompilerError"),
+                        "Plugin compiler diagnostic was not shown: \(error.consoleOutput)"
+                    )
                 }
             }
         }
@@ -5863,8 +6049,6 @@ struct PackageCommandTests {
         func commandPluginTargetBuilds_BinaryIsBuildinDebugByDefault(
             buildData: BuildData,
         ) async throws {
-            let debugTarget = try buildData.buildSystem.binPath(for: .debug) + [executableName("placeholder")]
-            let releaseTarget = try buildData.buildSystem.binPath(for: .release) + [executableName("placeholder")]
             try await withKnownIssue(isIntermittent: true) {
                 // By default, a plugin-requested build produces a debug binary
                 try await fixture(name: "Miscellaneous/Plugins/CommandPluginTestStub") { fixturePath in
@@ -5874,9 +6058,19 @@ struct PackageCommandTests {
                         configuration: buildData.config,
                         buildSystem: buildData.buildSystem,
                     )
-                    expectFileIsExecutable(at: fixturePath.appending(components: debugTarget), "build-target")
+                    let debugTarget = try await getBinPath(
+                        fixturePath,
+                        configuration: .debug,
+                        buildSystem: buildData.buildSystem,
+                    ).appending(executableName("placeholder"))
+                    let releaseTarget = try await getBinPath(
+                        fixturePath,
+                        configuration: .release,
+                        buildSystem: buildData.buildSystem,
+                    ).appending(executableName("placeholder"))
+                    expectFileIsExecutable(at: debugTarget, "build-target")
                     expectFileDoesNotExist(
-                        at: fixturePath.appending(components: releaseTarget),
+                        at: releaseTarget,
                         "build-target build-inherit"
                     )
                 }
@@ -5898,8 +6092,6 @@ struct PackageCommandTests {
         func commandPluginTargetBuilds_BinaryWillBeBuiltInDebugIfPluginSpecifiesDebugBuild(
             buildData: BuildData,
         ) async throws {
-            let debugTarget = try buildData.buildSystem.binPath(for: .debug) + [executableName("placeholder")]
-            let releaseTarget = try buildData.buildSystem.binPath(for: .release) + [executableName("placeholder")]
             try await withKnownIssue(isIntermittent: true) {
                 // If the plugin specifies a debug binary, that is what will be built, regardless of overall configuration
                 try await fixture(name: "Miscellaneous/Plugins/CommandPluginTestStub") { fixturePath in
@@ -5909,12 +6101,22 @@ struct PackageCommandTests {
                         configuration: buildData.config,
                         buildSystem: buildData.buildSystem,
                     )
+                    let debugTarget = try await getBinPath(
+                        fixturePath,
+                        configuration: .debug,
+                        buildSystem: buildData.buildSystem,
+                    ).appending(executableName("placeholder"))
+                    let releaseTarget = try await getBinPath(
+                        fixturePath,
+                        configuration: .release,
+                        buildSystem: buildData.buildSystem,
+                    ).appending(executableName("placeholder"))
                     expectFileIsExecutable(
-                        at: fixturePath.appending(components: debugTarget),
+                        at: debugTarget,
                         "build-target build-debug"
                     )
                     expectFileDoesNotExist(
-                        at: fixturePath.appending(components: releaseTarget),
+                        at: releaseTarget,
                         "build-target build-inherit"
                     )
                 }
@@ -5937,8 +6139,6 @@ struct PackageCommandTests {
         func commandPluginTargetBuilds_BinaryWillBeBuiltInReleaseIfPluginSpecifiesReleaseBuild(
             buildData: BuildData,
         ) async throws {
-            let debugTarget = try buildData.buildSystem.binPath(for: .debug) + [executableName("placeholder")]
-            let releaseTarget = try buildData.buildSystem.binPath(for: .release) + [executableName("placeholder")]
             // If the plugin requests a release binary, that is what will be built, regardless of overall configuration
             try await fixture(name: "Miscellaneous/Plugins/CommandPluginTestStub") { fixturePath in
                 let _ = try await execute(
@@ -5947,12 +6147,22 @@ struct PackageCommandTests {
                     configuration: buildData.config,
                     buildSystem: buildData.buildSystem,
                 )
+                let debugTarget = try await getBinPath(
+                    fixturePath,
+                    configuration: .debug,
+                    buildSystem: buildData.buildSystem,
+                ).appending(executableName("placeholder"))
+                let releaseTarget = try await getBinPath(
+                    fixturePath,
+                    configuration: .release,
+                    buildSystem: buildData.buildSystem,
+                ).appending(executableName("placeholder"))
                 expectFileDoesNotExist(
-                    at: fixturePath.appending(components: debugTarget),
+                    at: debugTarget,
                     "build-target build-inherit"
                 )
                 expectFileIsExecutable(
-                    at: fixturePath.appending(components: releaseTarget),
+                    at: releaseTarget,
                     "build-target build-release"
                 )
             }
@@ -5971,8 +6181,6 @@ struct PackageCommandTests {
         func commandPluginTargetBuilds_BinaryWillBeBuiltCorrectlyIfPluginSpecifiesInheritBuild(
             buildData: BuildData,
         ) async throws {
-            let debugTarget = try buildData.buildSystem.binPath(for: .debug) + [executableName("placeholder")]
-            let releaseTarget = try buildData.buildSystem.binPath(for: .release) + [executableName("placeholder")]
             // If the plugin inherits the overall build configuration, that is what will be built
             try await fixture(name: "Miscellaneous/Plugins/CommandPluginTestStub") { fixturePath in
                 let _ = try await execute(
@@ -5981,15 +6189,25 @@ struct PackageCommandTests {
                     configuration: buildData.config,
                     buildSystem: buildData.buildSystem,
                 )
+                let debugTarget = try await getBinPath(
+                    fixturePath,
+                    configuration: .debug,
+                    buildSystem: buildData.buildSystem,
+                ).appending(executableName("placeholder"))
+                let releaseTarget = try await getBinPath(
+                    fixturePath,
+                    configuration: .release,
+                    buildSystem: buildData.buildSystem,
+                ).appending(executableName("placeholder"))
                 let fileShouldNotExist: AbsolutePath
                 let fileShouldExist: AbsolutePath
                 switch buildData.config {
                 case .debug:
-                    fileShouldExist = fixturePath.appending(components: debugTarget)
-                    fileShouldNotExist = fixturePath.appending(components: releaseTarget)
+                    fileShouldExist = debugTarget
+                    fileShouldNotExist = releaseTarget
                 case .release:
-                    fileShouldNotExist = fixturePath.appending(components: debugTarget)
-                    fileShouldExist = fixturePath.appending(components: releaseTarget)
+                    fileShouldNotExist = debugTarget
+                    fileShouldExist = releaseTarget
                 }
                 expectFileDoesNotExist(at: fileShouldNotExist, "build-target build-inherit")
                 expectFileIsExecutable(at: fileShouldExist, "build-target build-inherit")
@@ -6328,9 +6546,6 @@ struct PackageCommandTests {
                 .Feature.Command.Run,
                 .Feature.Command.Package.CommandPlugin,
             ),
-            .IssueWindowsRelativePathAssert,
-            .IssueWindowsLongPath,
-            .IssueWindowsPathLastComponent,
             .issue(
                 "https://github.com/swiftlang/swift-package-manager/issues/9083",
                 relationship: .defect,
@@ -7184,6 +7399,58 @@ struct PackageCommandTests {
             }
             } when: {
                 buildSystem == .swiftbuild && ProcessInfo.hostOperatingSystem == .windows
+            }
+        }
+
+        @Test(
+            .requireHostOS(.linux),
+            .tags(
+                .Feature.Command.Package.CommandPlugin,
+            ),
+        )
+        func commandPluginBuildingTestProductArtifacts() async throws {
+            try await fixture(name: "CommandPluginTestProductArtifacts") { fixturePath in
+                let umbrellaTestProduct = "CommandPluginTestProductArtifactsPackageTests"
+
+                func expectArtifact(_ stdout: String, named name: String, sourceLocation: SourceLocation = #_sourceLocation) {
+                    #expect(stdout.split(separator: "\n").contains {
+                        $0.hasPrefix("artifact-path:") && $0.contains(name)
+                    }, "output did not reference artifact named '\(name)': \(stdout)")
+                }
+
+                do {
+                    let (stdout, _) = try await execute(
+                        ["dump-artifacts-plugin", "all"],
+                        packagePath: fixturePath,
+                        configuration: .debug,
+                        buildSystem: .swiftbuild
+                    )
+                    #expect(stdout.contains("succeeded: true"))
+                    expectArtifact(stdout, named: "MyLibrary")
+                    expectArtifact(stdout, named: "FirstTests")
+                    expectArtifact(stdout, named: "SecondTests")
+                }
+
+                do {
+                    let (stdout, _) = try await execute(
+                        ["dump-artifacts-plugin", "product", umbrellaTestProduct],
+                        packagePath: fixturePath,
+                        configuration: .debug,
+                        buildSystem: .swiftbuild
+                    )
+                    #expect(stdout.contains("succeeded: true"))
+                    expectArtifact(stdout, named: "FirstTests")
+                    expectArtifact(stdout, named: "SecondTests")
+                }
+
+                let (stdout, _) = try await execute(
+                    ["dump-artifacts-plugin", "product", "FirstTests"],
+                    packagePath: fixturePath,
+                    configuration: .debug,
+                    buildSystem: .swiftbuild
+                )
+                #expect(stdout.contains("succeeded: true"))
+                expectArtifact(stdout, named: "FirstTests")
             }
         }
 
@@ -8331,7 +8598,7 @@ struct PackageCommandTests {
         ) async throws {
             try await fixture(name: "DependencyResolution/Internal/Simple") { fixturePath in
                 let config = BuildConfiguration.debug
-                let (stdout, stderr) = try await execute(
+                let (_, stderr) = try await execute(
                     ["generate-sbom", "--sbom-spec", "cyclonedx"],
                     packagePath: fixturePath,
                     configuration: config,

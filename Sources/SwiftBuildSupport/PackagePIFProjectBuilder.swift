@@ -68,9 +68,17 @@ struct PackagePIFProjectBuilder {
     /// These modules should be compiled without static linking on Windows.
     var modulesInDynamicLibraries: Set<String> = []
 
+    /// Module names that are direct dependencies of automatic libraries which may be
+    /// promoted to dynamic. These modules should be compiled without static linking on Windows
+    /// if the corresponding target builds dynamically.
+    var modulesInPromotableAutomaticLibraries: [String: Set<GUID>] = [:]
+
     /// FIXME: We should eventually clean this up but right now we have to carry over this
     /// bit of information from processing the *products* to processing the *targets*.
     var mainModuleTargetNamesWithResources: Set<String> = []
+
+    /// Names of modules for which a resource-bundle target has actually been created (in `addResourceBundle`).
+    private var moduleNamesWithResourceBundleTargets: Set<String> = []
 
     var builtModulesAndProducts: [PackagePIFBuilder.ModuleOrProduct]
 
@@ -187,6 +195,7 @@ struct PackagePIFProjectBuilder {
                 productName: bundleName
             )
         }
+        self.moduleNamesWithResourceBundleTargets.insert(module.name)
         var resourcesTarget: ProjectModel.Target { self.project[keyPath: resourcesTargetKeyPath] }
 
         self.project[keyPath: targetKeyPath].common.addDependency(
@@ -381,6 +390,10 @@ struct PackagePIFProjectBuilder {
     func resourceBundleTargetKeyPath(
         forModuleName name: String
     ) -> WritableKeyPath<ProjectModel.Project, ProjectModel.Target>? {
+        // Skip the `findTarget` scan for modules that have no resource-bundle target, which is
+        // the common case. Performing the scan for every module would make PIF construction O(n^2)
+        // on the number of targets. When a bundle does exist, fall through to the scan.
+        guard self.moduleNamesWithResourceBundleTargets.contains(name) else { return nil }
         let resourceBundleGUID = self.pifTargetIdForResourceBundle(name)
         let targetKeyPath = self.project.findTarget(id: resourceBundleGUID)
         return targetKeyPath

@@ -63,7 +63,7 @@ extension ModulesGraph {
                 identity: identity,
                 manifest: package.manifest,
                 productFilter: .everything,
-                enabledTraits: enabledTraitsMap[identity]
+                enabledTraits: enabledTraitsMap[package.manifest]
             )
         }
         let rootDependencyNodes = try root.dependencies.lazy.filter { requiredDependencies.contains($0.packageRef) }
@@ -73,7 +73,7 @@ extension ModulesGraph {
                         identity: dependency.identity,
                         manifest: $0.manifest,
                         productFilter: dependency.productFilter,
-                        enabledTraits: enabledTraitsMap[dependency.identity]
+                        enabledTraits: enabledTraitsMap[$0.manifest]
                     )
                 }
             }
@@ -101,7 +101,7 @@ extension ModulesGraph {
                                 identity: dependency.identity,
                                 manifest: manifest,
                                 productFilter: dependency.productFilter,
-                                enabledTraits: enabledTraitsMap[manifest.packageIdentity]
+                                enabledTraits: enabledTraitsMap[manifest]
                             ),
                             key: dependency.identity
                         )
@@ -150,6 +150,10 @@ extension ModulesGraph {
             //
             // FIXME: Lift this out of the manifest.
             let packagePath = manifest.path.parentDirectory
+            // Use the file system associated with this package, if there is one. A package provided by a
+            // custom container may be backed by its own file system, and its sources can only be
+            // discovered through it rather than through the one backing the rest of the graph.
+            let packageFileSystem = manifestMap[node.identity]?.fs ?? fileSystem
             nodeObservabilityScope.trap {
                 // Create a package from the manifest and sources.
 
@@ -170,7 +174,7 @@ extension ModulesGraph {
                     shouldCreateMultipleTestProducts: shouldCreateMultipleTestProducts,
                     testEntryPointPath: testEntryPointPath,
                     createREPLProduct: manifest.packageKind.isRoot ? createREPLProduct : false,
-                    fileSystem: fileSystem,
+                    fileSystem: packageFileSystem,
                     observabilityScope: nodeObservabilityScope,
                     enabledTraits: enabledTraits
                 )
@@ -205,6 +209,7 @@ extension ModulesGraph {
             platformRegistry: customPlatformsRegistry ?? .default,
             platformVersionProvider: platformVersionProvider,
             fileSystem: fileSystem,
+            packageFileSystems: manifestMap.reduce(into: [:]) { $0[$1.key] = $1.value.fs },
             observabilityScope: observabilityScope,
             productsFilter: productsFilter,
             modulesFilter: modulesFilter
@@ -383,6 +388,8 @@ private func createResolvedPackages(
     platformRegistry: PlatformRegistry,
     platformVersionProvider: PlatformVersionProvider,
     fileSystem: FileSystem,
+    /// The file systems of the packages that provide one of their own, keyed by package identity.
+    packageFileSystems: [PackageIdentity: FileSystem],
     observabilityScope: ObservabilityScope,
     productsFilter: ((Product) -> Bool)?,
     modulesFilter: ((Module) -> Bool)?
@@ -551,7 +558,7 @@ private func createResolvedPackages(
                 }
 
                 let nameForModuleDependencyResolution = dependency
-                    .explicitNameForModuleDependencyResolutionOnly ?? dependency.identity.description
+                    .nameForModuleDependencyResolutionOnly
                 dependenciesByNameForModuleDependencyResolution[nameForModuleDependencyResolution] = resolvedPackage
                 dependencyNamesForModuleDependencyResolutionOnly[resolvedPackage.package.identity] =
                     nameForModuleDependencyResolution
@@ -595,10 +602,14 @@ private func createResolvedPackages(
                 switch dependency {
                 case .module(let moduleDependency, let conditions):
                     try moduleBuilder.module.validateDependency(module: moduleDependency)
-                    guard let moduleBuilder = modulesMap[moduleDependency] else {
+                    guard let dependencyBuilder = modulesMap[moduleDependency] else {
                         throw InternalError("unknown target \(moduleDependency.name)")
                     }
-                    return .module(moduleBuilder, conditions: conditions)
+                    if moduleBuilder.module.type == .test && dependencyBuilder.module.type == .test
+                        && !dependencyBuilder.isTestSupportModule {
+                        dependencyBuilder.isTestSupportModule = true
+                    }
+                    return .module(dependencyBuilder, conditions: conditions)
                 case .product:
                     return nil
                 }
@@ -629,10 +640,15 @@ private func createResolvedPackages(
         }
 
         // add registry metadata if available
-        if fileSystem.exists(package.path.appending(component: RegistryReleaseMetadataStorage.fileName)) {
+        //
+        // A package's own file system is the one that has to be consulted here: asking the graph-wide
+        // file system about a path belonging to a package that provides its own would describe some
+        // unrelated file, or none at all.
+        let packageFileSystem = packageFileSystems[package.identity] ?? fileSystem
+        if packageFileSystem.exists(package.path.appending(component: RegistryReleaseMetadataStorage.fileName)) {
             packageBuilder.registryMetadata = try RegistryReleaseMetadataStorage.load(
                 from: package.path.appending(component: RegistryReleaseMetadataStorage.fileName),
-                fileSystem: fileSystem
+                fileSystem: packageFileSystem
             )
         }
     }
@@ -1188,59 +1204,6 @@ private func emitDuplicateProductDiagnostic(
     )
 }
 
-private func calculateEnabledTraits(
-    parentPackage: PackageIdentity?,
-    identity: PackageIdentity,
-    manifest: Manifest,
-    explictlyEnabledTraits: Set<String>?
-) throws -> Set<String> {
-    // This the point where we flatten the enabled traits and resolve the recursive traits
-    var recursiveEnabledTraits = explictlyEnabledTraits ?? []
-    let areDefaultsEnabled = recursiveEnabledTraits.remove("default") != nil
-
-    // We are going to calculate which traits are actually enabled for a node here. To do this
-    // we have to check if default traits should be used and then flatten all the enabled traits.
-    for trait in recursiveEnabledTraits {
-        // Check if the enabled trait is a valid trait
-        if manifest.traits.first(where: { $0.name == trait }) == nil {
-            // The enabled trait is invalid
-            throw ModuleError.invalidTrait(package: identity, trait: trait)
-        }
-    }
-
-    if let parentPackage, !(explictlyEnabledTraits == nil || areDefaultsEnabled) && !manifest.supportsTraits {
-        // We throw an error when default traits are disabled for a package without any traits
-        // This allows packages to initially move new API behind traits once.
-        throw ModuleError.disablingDefaultTraitsOnEmptyTraits(
-            parentPackage: parentPackage,
-            packageName: manifest.displayName
-        )
-    }
-
-    // We have to enable all default traits if no traits are enabled or the defaults are explicitly enabled
-    if explictlyEnabledTraits == nil || areDefaultsEnabled {
-        recursiveEnabledTraits.formUnion(manifest.traits.first { $0.name == "default" }?.enabledTraits ?? [])
-    }
-
-    while true {
-        let flattendEnabledTraits = Set(
-            manifest.traits
-                .lazy
-                .filter { recursiveEnabledTraits.contains($0.name) }
-                .map(\.enabledTraits)
-                .joined()
-        )
-        let newRecursiveEnabledTraits = recursiveEnabledTraits.union(flattendEnabledTraits)
-        if newRecursiveEnabledTraits.count == recursiveEnabledTraits.count {
-            break
-        } else {
-            recursiveEnabledTraits = newRecursiveEnabledTraits
-        }
-    }
-
-    return recursiveEnabledTraits
-}
-
 extension Package {
     fileprivate var doesNotSupportProductAliases: Bool {
         // We can never use the identity based lookup for older packages because they lack the necessary information.
@@ -1517,6 +1480,9 @@ private final class ResolvedModuleBuilder: ResolvedBuilder<ResolvedModule> {
     /// A constraint on which platforms this module needs to build for.
     var platformConstraint: PlatformConstraint? = nil
 
+    /// Whether this is a test module that is directly depended upon by other test modules.
+    var isTestSupportModule: Bool = false
+
     var isHostOnly: Bool {
         module.type == .macro || (module.type == .test && dependencies.contains(where: {
                 switch $0 {
@@ -1576,7 +1542,8 @@ private final class ResolvedModuleBuilder: ResolvedBuilder<ResolvedModule> {
             supportedPlatforms: self.supportedPlatforms,
             // maintain existing functionality and default to .all
             platformConstraint: self.platformConstraint ?? .all,
-            platformVersionProvider: self.platformVersionProvider
+            platformVersionProvider: self.platformVersionProvider,
+            isTestSupportModule: self.isTestSupportModule
         )
     }
 }

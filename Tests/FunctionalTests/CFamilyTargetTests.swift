@@ -50,7 +50,11 @@ struct CFamilyTargetTestCase {
                 )
                 switch data.buildSystem {
                 case .native:
-                    let binPath = try fixturePath.appending(components: data.buildSystem.binPath(for: data.config))
+                    let binPath = try await getBinPath(
+                        fixturePath,
+                        configuration: data.config,
+                        buildSystem: data.buildSystem,
+                    )
                     expectDirectoryContainsFile(dir: binPath, filename: "Bar.c.o")
                     expectDirectoryContainsFile(dir: binPath, filename: "Foo.c.o")
                 case .swiftbuild:
@@ -79,7 +83,11 @@ struct CFamilyTargetTestCase {
                 )
                 switch data.buildSystem {
                 case .native:
-                    let binPath = try packageRoot.appending(components: data.buildSystem.binPath(for: data.config))
+                    let binPath = try await getBinPath(
+                        packageRoot,
+                        configuration: data.config,
+                        buildSystem: data.buildSystem,
+                    )
                     expectDirectoryContainsFile(dir: binPath, filename: "Sea.c.o")
                     expectDirectoryContainsFile(dir: binPath, filename: "Foo.c.o")
                 case .swiftbuild:
@@ -88,7 +96,7 @@ struct CFamilyTargetTestCase {
                     Issue.record("Test expectation have not been implemented.")
                 }
                 let path = try SwiftPM.packagePath(for: "Foo", packageRoot: packageRoot)
-                let actualTags = try GitRepository(path: path).getTags()
+                let actualTags = try await GitRepository(path: path).getTags()
                 #expect(actualTags == ["1.2.3"])
             }
     }
@@ -112,7 +120,11 @@ struct CFamilyTargetTestCase {
                 )
                 switch data.buildSystem {
                 case .native:
-                    let binPath = try fixturePath.appending(components: data.buildSystem.binPath(for: data.config))
+                    let binPath = try await getBinPath(
+                        fixturePath,
+                        configuration: data.config,
+                        buildSystem: data.buildSystem,
+                    )
                     expectDirectoryContainsFile(dir: binPath, filename: "Jaz.c.o")
                     expectDirectoryContainsFile(dir: binPath, filename: "main.swift.o")
                     expectDirectoryContainsFile(dir: binPath, filename: "FlatInclude.c.o")
@@ -171,7 +183,11 @@ struct CFamilyTargetTestCase {
                 )
                 switch data.buildSystem {
                 case .native:
-                    let binPath = try fixturePath.appending(components: data.buildSystem.binPath(for: data.config))
+                    let binPath = try await getBinPath(
+                        fixturePath,
+                        configuration: data.config,
+                        buildSystem: data.buildSystem,
+                    )
                     expectDirectoryContainsFile(dir: binPath, filename: "Foo.c.o")
                 case .swiftbuild:
                     break
@@ -201,7 +217,11 @@ struct CFamilyTargetTestCase {
             )
             switch data.buildSystem {
             case .native:
-                let binPath = try fixturePath.appending(components: data.buildSystem.binPath(for: data.config))
+                let binPath = try await getBinPath(
+                    fixturePath,
+                    configuration: data.config,
+                    buildSystem: data.buildSystem,
+                )
                 expectDirectoryContainsFile(dir: binPath, filename: "HelloWorldExample.m.o")
                 expectDirectoryContainsFile(dir: binPath, filename: "HelloWorldExample.m.o")
             case .swiftbuild, .xcode:
@@ -236,7 +256,11 @@ struct CFamilyTargetTestCase {
                 )
                 switch data.buildSystem {
                 case .native:
-                    let binPath = try fixturePath.appending(components: data.buildSystem.binPath(for: data.config))
+                    let binPath = try await getBinPath(
+                        fixturePath,
+                        configuration: data.config,
+                        buildSystem: data.buildSystem,
+                    )
                     expectDirectoryContainsFile(dir: binPath, filename: "HeaderInclude.swiftmodule")
                 case .swiftbuild, .xcode:
                     // there aren't any specific expectations to look for

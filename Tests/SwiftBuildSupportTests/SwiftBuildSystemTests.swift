@@ -30,6 +30,7 @@ import _InternalTestSupport
 func withInstantiatedSwiftBuildSystem(
     fromFixture fixtureName: String,
     buildParameters: BuildParameters? = nil,
+    createREPLProduct: Bool = false,
     logLevel: Basics.Diagnostic.Severity = .warning,
     do doIt: @escaping (SwiftBuildSupport.SwiftBuildSystem, SWBBuildService, SWBBuildServiceSession, TestingObservability, BuildParameters,) async throws -> (),
 ) async throws {
@@ -41,12 +42,20 @@ func withInstantiatedSwiftBuildSystem(
             let buildParameters = if let buildParameters {
                 buildParameters
             } else {
-                mockBuildParameters(destination: .host, toolchain: toolchain, buildSystemKind: .swiftbuild)
+                mockBuildParameters(
+                    destination: .host,
+                    buildPath: tmpDir.appending("build"),
+                    toolchain: toolchain,
+                    buildSystemKind: .swiftbuild,
+                )
             }
             let observabilitySystem: TestingObservability = ObservabilitySystem.makeForTesting()
+            var workspaceConfiguration = WorkspaceConfiguration.default
+            workspaceConfiguration.createREPLProduct = createREPLProduct
             let workspace = try Workspace(
                 fileSystem: fileSystem,
                 forRootPackage: fixturePath,
+                configuration: workspaceConfiguration,
                 customManifestLoader: ManifestLoader(toolchain: toolchain),
             )
             let rootInput = PackageGraphRootInput(packages: [fixturePath], dependencies: [])
@@ -80,6 +89,7 @@ func withInstantiatedSwiftBuildSystem(
                 ),
                 delegate: nil,
                 scratchDirectory: tmpDir.appending("scratchDirectory"),
+                shouldDisableSandbox: false,
             )
 
             try await SwiftBuildSupport.withService(
@@ -141,6 +151,26 @@ extension PackageModel.Sanitizer {
 )
 struct SwiftBuildSystemTests {
 
+    @Test
+    func replIncludesGeneratedModuleMaps() async throws {
+        try await withInstantiatedSwiftBuildSystem(
+            fromFixture: "CFamilyTargets/ModuleMapGenerationCases",
+            createREPLProduct: true,
+        ) { swiftBuild, _, _, _, _ in
+            let result = try await swiftBuild.build(
+                subset: .allExcludingTests,
+                buildOutputs: [.replArguments],
+            )
+            let replArguments = try #require(result.replArguments)
+
+            #expect(replArguments.contains("-Xcc"))
+            #expect(!replArguments.contains("-fmodule-map-file="))
+            #expect(replArguments.contains {
+                $0.hasSuffix("/FlatInclude.modulemap") && $0.hasPrefix("-fmodule-map-file=")
+            })
+        }
+    }
+
     @Suite(
         .tags(
             .FunctionalArea.Sanitizer,
@@ -158,6 +188,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     buildSystemKind: .swiftbuild,
                     sanitizers: [sanitizer],
                 ),
@@ -167,6 +198,7 @@ struct SwiftBuildSystemTests {
                     session: session,
                     symbolGraphOptions: nil,
                     setToolchainSetting: false, // Set this to false as SwiftBuild checks the toolchain path
+                    shouldDisableSandbox: false,
                 )
 
                 let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -187,6 +219,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     buildSystemKind: .swiftbuild,
                     sanitizers: [sanitizer],
                 ),
@@ -197,9 +230,40 @@ struct SwiftBuildSystemTests {
                         session: session,
                         symbolGraphOptions: nil,
                         setToolchainSetting: false, // Set this to false as SwiftBuild checks the toolchain path
+                        shouldDisableSandbox: false,
                     )
                 }
             }
+        }
+    }
+
+    @Test
+    func userSwiftExecOverrideIsAlwaysHonoured() async throws {
+        let base = try UserToolchain.default
+        let overrideCompiler = base.swiftCompilerPath.parentDirectory.appending("swift")
+        var environment = Environment.current
+        environment["SWIFT_EXEC"] = overrideCompiler.pathString
+        let overridden = try UserToolchain(swiftSDK: base.swiftSDK, environment: environment)
+        try #require(overridden.swiftCompilerPath == overrideCompiler)
+        try #require(overrideCompiler != base.swiftCompilerPath)
+
+        try await withInstantiatedSwiftBuildSystem(
+            fromFixture: "PIFBuilder/Simple",
+            buildParameters: mockBuildParameters(
+                destination: .host,
+                toolchain: overridden,
+                buildSystemKind: .swiftbuild,
+            ),
+        ) { swiftBuild, service, session, _, _ in
+            let buildSettings: SWBBuildParameters = try await swiftBuild.makeBuildParameters(
+                service: service,
+                session: session,
+                symbolGraphOptions: nil,
+                shouldDisableSandbox: false,
+            )
+
+            let synthesized = try #require(buildSettings.overrides.synthesized)
+            #expect(synthesized.table["SWIFT_EXEC"] == overrideCompiler.pathStringWithPosixSlashes)
         }
     }
 
@@ -219,6 +283,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     buildSystemKind: .swiftbuild,
                     shouldLinkStaticSwiftStdlib: shouldLinkStaticSwiftStdlib,
                     triple: triple,
@@ -230,6 +295,7 @@ struct SwiftBuildSystemTests {
                     session: session,
                     symbolGraphOptions: nil,
                     setToolchainSetting: false, // Set this to false as SwiftBuild checks the toolchain path
+                    shouldDisableSandbox: false,
                 )
 
                 // THEN we expect a warning to be emitted
@@ -262,6 +328,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     buildSystemKind: .swiftbuild,
                     shouldLinkStaticSwiftStdlib: shouldLinkStaticSwiftStdlib,
                     triple: nonDarwinTriple,
@@ -273,6 +340,7 @@ struct SwiftBuildSystemTests {
                     session: session,
                     symbolGraphOptions: nil,
                     setToolchainSetting: false, // Set this to false as SwiftBuild checks the toolchain path
+                    shouldDisableSandbox: false,
                 )
 
                 // THEN we don't expect any warnings to be emitted
@@ -290,7 +358,6 @@ struct SwiftBuildSystemTests {
 
     @Test(
         arguments: BuildParameters.IndexStoreMode.allCases,
-        // arguments: [BuildParameters.IndexStoreMode.on],
     )
     func indexModeSettingSetCorrectBuildRequest(
         indexStoreSettingUT: BuildParameters.IndexStoreMode
@@ -309,6 +376,7 @@ struct SwiftBuildSystemTests {
                 session: session,
                 symbolGraphOptions: nil,
                 setToolchainSetting: false, // Set this to false as SwiftBuild checks the toolchain path
+                shouldDisableSandbox: false,
             )
 
             let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -318,13 +386,17 @@ struct SwiftBuildSystemTests {
                 case .auto: nil
             }
             let expectedPathValue: AbsolutePath? = switch indexStoreSettingUT {
-                case .on: try await swiftBuild.indexStore(for: buildParameters)
+                case .on, .auto: try await swiftBuild.indexStore(for: buildParameters)
                 case .off: nil
-                case .auto: nil
+            }
+            let expectedCompilerIndexStoreValue: String? = switch indexStoreSettingUT {
+                case .on: "YES"
+                case .off, .auto: nil
             }
 
             #expect(synthesizedArgs.table["SWIFT_INDEX_STORE_ENABLE"] == expectedSettingValue)
             #expect(synthesizedArgs.table["CLANG_INDEX_STORE_ENABLE"] == expectedSettingValue)
+            #expect(synthesizedArgs.table["COMPILER_INDEX_STORE_ENABLE"] == expectedCompilerIndexStoreValue)
             if let expectedPathValue {
                 let swiftPath = try #require(
                     synthesizedArgs.table["SWIFT_INDEX_STORE_PATH"],
@@ -340,6 +412,19 @@ struct SwiftBuildSystemTests {
                 #expect(synthesizedArgs.table["SWIFT_INDEX_STORE_PATH"] == nil)
                 #expect(synthesizedArgs.table["CLANG_INDEX_STORE_PATH"] == nil)
             }
+
+            let buildRequest = try await swiftBuild.makeBuildRequest(
+                service: service,
+                session: session,
+                configuredTargets: [],
+                derivedDataPath: buildParameters.dataPath,
+                symbolGraphOptions: nil,
+                setToolchainSetting: false,
+                shouldDisableSandbox: false,
+            )
+            let arenaInfo = try #require(buildRequest.parameters.arenaInfo)
+            #expect(arenaInfo.indexEnableDataStore == (indexStoreSettingUT != .off))
+            #expect(arenaInfo.indexDataStoreFolderPath == expectedPathValue?.pathString)
         }
     }
 
@@ -359,6 +444,7 @@ struct SwiftBuildSystemTests {
             fromFixture: "PIFBuilder/Simple",
             buildParameters: mockBuildParameters(
                 destination: .host,
+                toolchain: try UserToolchain.default,
                 buildSystemKind: .swiftbuild,
                 stripProducts: stripProductsSettingUT,
             ),
@@ -369,6 +455,7 @@ struct SwiftBuildSystemTests {
                 session: session,
                 symbolGraphOptions: nil,
                 setToolchainSetting: false, // Set this to false as SwiftBuild checks the toolchain path
+                shouldDisableSandbox: false,
             )
 
             let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -395,6 +482,7 @@ struct SwiftBuildSystemTests {
             fromFixture: "PIFBuilder/Simple",
             buildParameters: mockBuildParameters(
                 destination: .host,
+                toolchain: try UserToolchain.default,
                 buildSystemKind: .swiftbuild,
                 linkerDeadStrip: linkerDeadStripUT,
             ),
@@ -405,6 +493,7 @@ struct SwiftBuildSystemTests {
                 session: session,
                 symbolGraphOptions: nil,
                 setToolchainSetting: false, // Set this to false as SwiftBuild checks the toolchain path
+                shouldDisableSandbox: false,
             )
 
             let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -434,6 +523,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     buildSystemKind: .swiftbuild,
                     numberOfWorkers: expectedNumberOfWorkers,
                 ),
@@ -444,7 +534,8 @@ struct SwiftBuildSystemTests {
                     configuredTargets: [],
                     derivedDataPath: tempDir,
                     symbolGraphOptions: nil,
-                    setToolchainSetting: false
+                    setToolchainSetting: false,
+                    shouldDisableSandbox: false,
                 )
 
                 #expect(buildRequest.schedulerLaneWidthOverride == expectedNumberOfWorkers)
@@ -459,6 +550,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     flags: .init(cCompilerFlags: [BuildFlag(value: "-DFoo", source: .commandLineOptions)]),
                     buildSystemKind: .swiftbuild
                 ),
@@ -469,11 +561,48 @@ struct SwiftBuildSystemTests {
                     configuredTargets: [],
                     derivedDataPath: tempDir,
                     symbolGraphOptions: nil,
-                    setToolchainSetting: false
+                    setToolchainSetting: false,
+                    shouldDisableSandbox: false,
                 )
 
                 #expect(buildRequest.parameters.overrides.synthesized?.table["OTHER_CFLAGS"]?.contains("-DFoo") == true)
                 #expect(buildRequest.parameters.overrides.synthesized?.table["OTHER_SWIFT_FLAGS"]?.contains("-Xcc -DFoo") == true)
+            }
+        }
+    }
+
+    @Test
+    func moduleCachePathCLIOverride() async throws {
+        try await withTemporaryDirectory { tempDir in
+            let moduleCachePath = tempDir.appending("shared-module-cache").pathString
+            try await withInstantiatedSwiftBuildSystem(
+                fromFixture: "PIFBuilder/Simple",
+                buildParameters: mockBuildParameters(
+                    destination: .host,
+                    toolchain: try UserToolchain.default,
+                    flags: .init(swiftCompilerFlags: [
+                        BuildFlag(value: "-module-cache-path", source: .commandLineOptions),
+                        BuildFlag(value: moduleCachePath, source: .commandLineOptions),
+                        BuildFlag(value: "-DFoo", source: .commandLineOptions),
+                    ]),
+                    buildSystemKind: .swiftbuild
+                ),
+            ) { swiftBuild, service, session, observabilityScope, buildParameters in
+                let buildRequest = try await swiftBuild.makeBuildRequest(
+                    service: service,
+                    session: session,
+                    configuredTargets: [],
+                    derivedDataPath: tempDir,
+                    symbolGraphOptions: nil,
+                    setToolchainSetting: false,
+                    shouldDisableSandbox: false,
+                )
+
+                let overrides = buildRequest.parameters.overrides.synthesized?.table
+                #expect(overrides?["MODULE_CACHE_DIR"] == moduleCachePath)
+                let otherSwiftFlags = try #require(overrides?["OTHER_SWIFT_FLAGS"])
+                #expect(!otherSwiftFlags.contains("-module-cache-path"))
+                #expect(otherSwiftFlags.contains("-DFoo"))
             }
         }
     }
@@ -502,6 +631,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     buildSystemKind: .swiftbuild,
                     triple: .x86_64MacOS,
                     shouldEnableDebuggingEntitlement: shouldEnableDebuggingEntitlement
@@ -511,7 +641,8 @@ struct SwiftBuildSystemTests {
                     service: service,
                     session: session,
                     symbolGraphOptions: nil,
-                    setToolchainSetting: false
+                    setToolchainSetting: false,
+                    shouldDisableSandbox: false,
                 )
 
                 let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -539,6 +670,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     buildSystemKind: .swiftbuild,
                     debugInfoFormat: debugInfoFormat
                 ),
@@ -547,7 +679,8 @@ struct SwiftBuildSystemTests {
                     service: service,
                     session: session,
                     symbolGraphOptions: nil,
-                    setToolchainSetting: false
+                    setToolchainSetting: false,
+                    shouldDisableSandbox: false,
                 )
 
                 let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -562,6 +695,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     buildSystemKind: .swiftbuild,
                     triple: .windows,
                     debugInfoFormat: .codeview
@@ -571,7 +705,8 @@ struct SwiftBuildSystemTests {
                     service: service,
                     session: session,
                     symbolGraphOptions: nil,
-                    setToolchainSetting: false
+                    setToolchainSetting: false,
+                    shouldDisableSandbox: false,
                 )
 
                 let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -593,6 +728,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     buildSystemKind: .swiftbuild,
                     omitFramePointers: omitFramePointers
                 ),
@@ -601,7 +737,8 @@ struct SwiftBuildSystemTests {
                     service: service,
                     session: session,
                     symbolGraphOptions: nil,
-                    setToolchainSetting: false
+                    setToolchainSetting: false,
+                    shouldDisableSandbox: false,
                 )
 
                 let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -616,6 +753,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     buildSystemKind: .swiftbuild,
                     omitFramePointers: nil
                 ),
@@ -624,7 +762,8 @@ struct SwiftBuildSystemTests {
                     service: service,
                     session: session,
                     symbolGraphOptions: nil,
-                    setToolchainSetting: false
+                    setToolchainSetting: false,
+                    shouldDisableSandbox: false,
                 )
 
                 let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -648,6 +787,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     buildSystemKind: .swiftbuild,
                     debugInfoFormat: .dwarf,
                     shouldEnableDebuggingEntitlement: true,
@@ -658,7 +798,8 @@ struct SwiftBuildSystemTests {
                     service: service,
                     session: session,
                     symbolGraphOptions: nil,
-                    setToolchainSetting: false
+                    setToolchainSetting: false,
+                    shouldDisableSandbox: false,
                 )
 
                 let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -705,6 +846,7 @@ struct SwiftBuildSystemTests {
                 fromFixture: "PIFBuilder/Simple",
                 buildParameters: mockBuildParameters(
                     destination: .host,
+                    toolchain: try UserToolchain.default,
                     flags: flags,
                     buildSystemKind: .swiftbuild,
                     debugInfoFormat: .dwarf,
@@ -715,7 +857,8 @@ struct SwiftBuildSystemTests {
                     service: service,
                     session: session,
                     symbolGraphOptions: nil,
-                    setToolchainSetting: false
+                    setToolchainSetting: false,
+                    shouldDisableSandbox: false,
                 )
 
                 let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -781,6 +924,7 @@ struct SwiftBuildSystemTests {
             fromFixture: "PIFBuilder/Simple",
             buildParameters: mockBuildParameters(
                 destination: .host,
+                toolchain: try UserToolchain.default,
                 flags: flags,
                 buildSystemKind: .swiftbuild,
             ),
@@ -789,7 +933,8 @@ struct SwiftBuildSystemTests {
                 service: service,
                 session: session,
                 symbolGraphOptions: nil,
-                setToolchainSetting: false
+                setToolchainSetting: false,
+                shouldDisableSandbox: false,
             )
 
             let synthesizedArgs = try #require(buildSettings.overrides.synthesized)
@@ -809,6 +954,7 @@ struct SwiftBuildSystemTests {
             fromFixture: "PIFBuilder/Simple",
             buildParameters: mockBuildParameters(
                 destination: .host,
+                toolchain: try UserToolchain.default,
                 buildSystemKind: .swiftbuild,
                 sdkRootOverride: sdkRoot,
             ),
@@ -818,10 +964,73 @@ struct SwiftBuildSystemTests {
                 session: session,
                 symbolGraphOptions: nil,
                 setToolchainSetting: false,
+                shouldDisableSandbox: false,
             )
 
             let runDestination = try #require(buildSettings.activeRunDestination)
             #expect(runDestination.sdk == sdkRoot.pathString)
+        }
+    }
+
+    @Suite
+    struct AdHocEntitlementsTests {
+        private static let getTaskAllowKey = "com.apple.security.get-task-allow"
+        private static let applicationIdentifierKeys = [
+            "com.apple.application-identifier",
+            "application-identifier",
+        ]
+
+        @Test
+        func macOSSignatureAppliesOnlyGetTaskAllow() throws {
+            let (signed, simulated) = SwiftBuildSystemPlanningOperationDelegate.adHocSignedEntitlements(
+                sdkRoot: "macosx.sdk",
+                entitlementsDestination: "Signature",
+                shouldEnableDebuggingEntitlement: true
+            )
+
+            #expect(signed == [Self.getTaskAllowKey: .plBool(true)])
+            #expect(simulated.isEmpty)
+            for key in Self.applicationIdentifierKeys {
+                #expect(signed[key] == nil, "ad-hoc signature must not inject \(key)")
+            }
+        }
+
+        @Test
+        func macOSWithoutDebuggingEntitlementSignsNothing() throws {
+            let (signed, simulated) = SwiftBuildSystemPlanningOperationDelegate.adHocSignedEntitlements(
+                sdkRoot: "macosx.sdk",
+                entitlementsDestination: "Signature",
+                shouldEnableDebuggingEntitlement: false
+            )
+
+            #expect(signed.isEmpty)
+            #expect(simulated.isEmpty)
+        }
+
+        @Test
+        func simulatorAppliesGetTaskAllowToSimulatedEntitlements() throws {
+            let (signed, simulated) = SwiftBuildSystemPlanningOperationDelegate.adHocSignedEntitlements(
+                sdkRoot: "iphonesimulator.sdk",
+                entitlementsDestination: "__entitlements",
+                shouldEnableDebuggingEntitlement: true
+            )
+
+            #expect(signed.isEmpty)
+            #expect(simulated == [Self.getTaskAllowKey: .plBool(true)])
+            for key in Self.applicationIdentifierKeys {
+                #expect(simulated[key] == nil, "ad-hoc simulated entitlements must not inject \(key)")
+            }
+        }
+
+        @Test
+        func nonDarwinUsesUnprefixedGetTaskAllowKey() throws {
+            let (signed, _) = SwiftBuildSystemPlanningOperationDelegate.adHocSignedEntitlements(
+                sdkRoot: "linux",
+                entitlementsDestination: "Signature",
+                shouldEnableDebuggingEntitlement: true
+            )
+
+            #expect(signed == ["get-task-allow": .plBool(true)])
         }
     }
 }

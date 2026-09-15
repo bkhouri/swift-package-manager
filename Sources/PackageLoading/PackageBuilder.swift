@@ -75,6 +75,18 @@ public enum ModuleError: Swift.Error {
     /// Invalid header search path.
     case invalidHeaderSearchPath(String)
 
+    /// Invalid bridging header path.
+    case invalidBridgingHeaderPath(target: String, path: String)
+
+    /// A bridging header was placed inside the target's public headers directory.
+    case bridgingHeaderInPublicHeadersDirectory(target: String, path: String)
+
+    /// A library target attempted to use a public bridging header.
+    case publicBridgingHeaderInLibraryTarget(target: String)
+
+    /// More than one bridging header was specified for a target.
+    case multipleBridgingHeaders(target: String)
+
     /// Default localization not set in the presence of localized resources.
     case defaultLocalizationNotSet
 
@@ -87,22 +99,14 @@ public enum ModuleError: Swift.Error {
     /// Indicates several targets with the same name exist in packages
     case duplicateModules(package: PackageIdentity, otherPackage: PackageIdentity, modules: [String])
 
+    /// A normal target points to an artifact bundle.
+    case artifactBundleAsNormalTarget(target: String)
+
     /// Indicates several targets with the same name exist in a registry and scm package
     case duplicateModulesScmAndRegistry(
         registryPackage: PackageIdentity.RegistryIdentity,
         scmPackage: PackageIdentity,
         modules: [String]
-    )
-
-    /// Indicates that an invalid trait was enabled.
-    case invalidTrait(
-        package: PackageIdentity,
-        trait: String
-    )
-    
-    case disablingDefaultTraitsOnEmptyTraits(
-        parentPackage: PackageIdentity,
-        packageName: String
     )
 }
 
@@ -153,12 +157,22 @@ extension ModuleError: CustomStringConvertible {
             return "invalid custom path '\(path)' for target '\(target)'"
         case .invalidHeaderSearchPath(let path):
             return "invalid header search path '\(path)'; header search path should not be outside the package root"
+        case .invalidBridgingHeaderPath(let target, let path):
+            return "invalid bridging header '\(path)' in target '\(target)'; the bridging header should not be outside the package root"
+        case .bridgingHeaderInPublicHeadersDirectory(let target, let path):
+            return "invalid bridging header '\(path)' in target '\(target)'; the bridging header must not be inside the target's public headers directory"
+        case .publicBridgingHeaderInLibraryTarget(let target):
+            return "library target '\(target)' cannot use a bridging header with '.public' visibility; only '.internal' visibility is supported in libraries"
+        case .multipleBridgingHeaders(let target):
+            return "target '\(target)' has more than one bridging header specified"
         case .defaultLocalizationNotSet:
             return "manifest property 'defaultLocalization' not set; it is required in the presence of localized resources"
         case .pluginCapabilityNotDeclared(let target):
             return "plugin target '\(target)' doesn't have a 'capability' property"
         case .embedInCodeNotSupported(let target):
             return "embedding resources in code not supported for C-family language target \(target)"
+        case .artifactBundleAsNormalTarget(let target):
+            return "target '\(target)' cannot point to an artifact bundle; use '.binaryTarget' instead"
         case .duplicateModules(let package, let otherPackage, let targets):
             var targetsDescription = "'\(targets.sorted().prefix(3).joined(separator: "', '"))'"
             if targets.count > 3 {
@@ -181,14 +195,6 @@ extension ModuleError: CustomStringConvertible {
             this may indicate that the two packages are the same and can be de-duplicated \
             by activating the automatic source-control to registry replacement, or by using mirrors. \
             if they are not duplicate consider using the `moduleAliases` parameter in manifest to provide unique names
-            """
-        case .invalidTrait(let package, let trait):
-            return """
-            Trait '"\(trait)"' is not declared by package '\(package)'.
-            """
-        case .disablingDefaultTraitsOnEmptyTraits(let parentPackage, let packageName):
-            return """
-            Disabled default traits by package '\(parentPackage)' on package '\(packageName)' that declares no traits. This is prohibited to allow packages to adopt traits initially without causing an API break.
             """
         }
     }
@@ -228,7 +234,7 @@ extension Module.Error: CustomStringConvertible {
         case .invalidName(let path, let problem):
             "invalid target name at '\(path)'; \(problem)"
         case .mixedSources(let path):
-            "target at '\(path)' contains mixed language source files; feature not supported"
+            "target at '\(path)' contains mixed language source files; mixed language targets require a tools version of 6.5 or later"
         }
     }
 }
@@ -631,6 +637,9 @@ public final class PackageBuilder {
         let potentialTargets: [PotentialModule]
         potentialTargets = try self.manifest.targetsRequired(for: self.productFilter).map { target in
             let path = try findPath(for: target)
+            if target.type != .binary && path.extension == "artifactbundle" {
+                throw ModuleError.artifactBundleAsNormalTarget(target: target.name)
+            }
             return PotentialModule(
                 name: target.name,
                 path: path,
@@ -1018,6 +1027,34 @@ public final class PackageBuilder {
 
         // Create and return the right kind of target depending on what kind of sources we found.
         if sources.hasSwiftSources {
+            var clangModuleInfo: ClangModuleInfo? = nil
+            // If this is a mixed source target, we also need to compute the clang module info.
+            let hasPublicHeaders = self.fileSystem.exists(publicHeadersPath)
+            let hasHeaderOnlyCModule = self.manifest.toolsVersion >= .v6_5 && hasPublicHeaders
+            if sources.hasClangSources || hasHeaderOnlyCModule {
+                let moduleMapType: ModuleMapType
+                let includeDir: AbsolutePath?
+                if hasPublicHeaders {
+                    let moduleMapGenerator = ModuleMapGenerator(
+                        targetName: potentialModule.name,
+                        moduleName: potentialModule.name.spm_mangledToC99ExtendedIdentifier(),
+                        publicHeadersDir: publicHeadersPath,
+                        fileSystem: self.fileSystem
+                    )
+                    moduleMapType = moduleMapGenerator.determineModuleMapType(observabilityScope: self.observabilityScope)
+                    includeDir = publicHeadersPath
+                } else {
+                    moduleMapType = .none
+                    includeDir = nil
+                }
+                clangModuleInfo = ClangModuleInfo(
+                    includeDir: includeDir,
+                    moduleMapType: moduleMapType,
+                    headers: headers,
+                    cLanguageStandard: self.manifest.cLanguageStandard,
+                    cxxLanguageStandard: self.manifest.cxxLanguageStandard
+                )
+            }
             return try SwiftModule(
                 name: potentialModule.name,
                 potentialBundleName: potentialBundleName,
@@ -1030,6 +1067,7 @@ public final class PackageBuilder {
                 dependencies: dependencies,
                 packageAccess: potentialModule.packageAccess,
                 declaredSwiftVersions: self.declaredSwiftVersions(),
+                clangModuleInfo: clangModuleInfo,
                 buildSettings: buildSettings,
                 buildSettingsDescription: manifestTarget.settings,
                 // unsafe flags check disabled in 6.2
@@ -1102,13 +1140,22 @@ public final class PackageBuilder {
 
         table.add(versionAssignment, for: .SWIFT_VERSION)
 
+        // A target may configure at most one bridging header.
+        let bridgingHeaderCount = target.settings.filter {
+            if case .bridgingHeader = $0.kind { return true }
+            return false
+        }.count
+        if bridgingHeaderCount > 1 {
+            throw ModuleError.multipleBridgingHeaders(target: target.name)
+        }
+
         // Process each setting.
         for setting in target.settings {
             if let traits = setting.condition?.traits, traits.intersection(self.enabledTraits.names).isEmpty {
                 // The setting is currently not enabled so we should skip it
                 continue
             }
-        
+
             let decl: BuildSettings.Declaration
             let values: [String]
 
@@ -1178,6 +1225,37 @@ public final class PackageBuilder {
                 } else {
                     values = []
                 }
+
+            case .bridgingHeader(let path, let visibility):
+                switch setting.tool {
+                case .c, .cxx, .linker:
+                    throw InternalError("only Swift supports bridging headers")
+                case .swift:
+                    decl = .SWIFT_OBJC_BRIDGING_HEADER
+                }
+
+                if target.type == .regular && visibility == .public {
+                    throw ModuleError.publicBridgingHeaderInLibraryTarget(target: target.name)
+                }
+
+                let bridgingHeaderPath = try AbsolutePath(validating: path, relativeTo: targetRoot)
+                guard bridgingHeaderPath.isDescendantOfOrEqual(to: self.packagePath) else {
+                    throw ModuleError.invalidBridgingHeaderPath(target: target.name, path: path)
+                }
+
+                let publicHeadersDir = try targetRoot.appending(
+                    RelativePath(validating: target.publicHeadersPath ?? "include")
+                )
+                if bridgingHeaderPath.isDescendantOfOrEqual(to: publicHeadersDir) {
+                    throw ModuleError.bridgingHeaderInPublicHeadersDirectory(target: target.name, path: path)
+                }
+
+                values = [bridgingHeaderPath.pathString]
+
+                var visibilityAssignment = BuildSettings.Assignment()
+                visibilityAssignment.values = [visibility == .internal ? "YES" : "NO"]
+                visibilityAssignment.conditions = self.buildConditions(from: setting.condition)
+                table.add(visibilityAssignment, for: .SWIFT_BRIDGING_HEADER_IS_INTERNAL)
 
             case .unsafeFlags(let _values):
                 values = _values
@@ -1250,7 +1328,7 @@ public final class PackageBuilder {
                     case .warning: "-Wno-error"
                     }
                     values = [flag]
-                    
+
                 case .cxx:
                     decl = .OTHER_CPLUSPLUSFLAGS
                     let flag = switch level {
@@ -1258,7 +1336,7 @@ public final class PackageBuilder {
                     case .warning: "-Wno-error"
                     }
                     values = [flag]
-                    
+
                 case .linker:
                     throw InternalError("linker does not support treatAllWarnings")
 
@@ -1283,7 +1361,7 @@ public final class PackageBuilder {
                     case .warning: "-Wno-error=\(name)"
                     }
                     values = [flag]
-                    
+
                 case .cxx:
                     decl = .OTHER_CPLUSPLUSFLAGS
                     let flag = switch level {
@@ -1291,7 +1369,7 @@ public final class PackageBuilder {
                     case .warning: "-Wno-error=\(name)"
                     }
                     values = [flag]
-                    
+
                 case .linker:
                     throw InternalError("linker does not support treatWarning")
 
@@ -1353,7 +1431,7 @@ public final class PackageBuilder {
         }
 
         // For each trait we are now generating an additional define
-        for trait in self.enabledTraits {
+        for trait in self.enabledTraits.sorted() {
             var assignment = BuildSettings.Assignment()
             assignment.values = ["\(trait)"]
             assignment.conditions = []
@@ -1723,13 +1801,21 @@ public final class PackageBuilder {
 
     private func validateExecutableProduct(_ product: ProductDescription, with targets: [Module]) -> Bool {
         let executableTargetCount = targets.executables.count
-        guard executableTargetCount == 1 else {
+        let isSingleBinaryModule = targets.count == 1 && targets[0].type == .binary
+        guard executableTargetCount == 1 || isSingleBinaryModule else {
             if executableTargetCount == 0 {
                 if let target = targets.spm_only {
                     self.observabilityScope
-                        .emit(.executableProductTargetNotExecutable(product: product.name, target: target.name))
+                        .emit(.executableProductTargetNotExecutable(
+                            product: product.name,
+                            target: target.name,
+                            toolsVersion: self.manifest.toolsVersion
+                        ))
                 } else {
-                    self.observabilityScope.emit(.executableProductWithoutExecutableTarget(product: product.name))
+                    self.observabilityScope.emit(.executableProductWithoutExecutableTarget(
+                        product: product.name,
+                        toolsVersion: self.manifest.toolsVersion
+                    ))
                 }
             } else {
                 self.observabilityScope.emit(.executableProductWithMoreThanOneExecutableTarget(product: product.name))
@@ -1833,28 +1919,6 @@ extension Manifest {
 }
 
 extension Sources {
-    public var hasSwiftSources: Bool {
-        paths.contains { path in
-            guard let ext = path.extension else { return false }
-
-            return FileRuleDescription.swift.fileTypes.contains(ext)
-        }
-    }
-
-    public var hasClangSources: Bool {
-        let supportedClangFileExtensions = FileRuleDescription.clang.fileTypes.union(FileRuleDescription.asm.fileTypes)
-
-        return paths.contains { path in
-            guard let ext = path.extension else { return false }
-
-            return supportedClangFileExtensions.contains(ext)
-        }
-    }
-
-    public var containsMixedLanguage: Bool {
-        self.hasSwiftSources && self.hasClangSources
-    }
-
     /// Determine module type based on the sources.
     fileprivate func computeModuleKind() -> Module.Kind {
         let isLibrary = !relativePaths.contains { path in

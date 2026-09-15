@@ -12,7 +12,6 @@
 
 import _Concurrency
 import Foundation
-import struct TSCUtility.Versioning
 #if canImport(FoundationNetworking)
 // FIXME: this brings OpenSSL dependency on Linux and needs to be replaced with `swift-server/async-http-client` package
 import FoundationNetworking
@@ -209,15 +208,9 @@ private final class DataTaskManager: NSObject, URLSessionDataDelegate {
             return
         }
 
-        var request = request
-        // Set `Authorization` header for the redirected request
-        if let redirectURL = request.url, let authorization = task.authorizationProvider?(redirectURL),
-           request.value(forHTTPHeaderField: "Authorization") == nil
-        {
-            request.addValue(authorization, forHTTPHeaderField: "Authorization")
-        }
-
-        completionHandler(request)
+        completionHandler(
+            request.redirecting(from: response, authorizationProvider: task.authorizationProvider)
+        )
     }
 
     struct DataTask: Sendable {
@@ -307,20 +300,19 @@ private final class DownloadTaskManager: NSObject, URLSessionDownloadDelegate {
         do {
             let path = try AbsolutePath(validating: location.path)
 
-            // Only proceed to move the file if status code is within 200-299 range.
+            // `URLSession` removes `location` after this callback returns, so consume it synchronously.
             if let response = downloadTask.response as? HTTPURLResponse,
-               response.statusCode < 200 || response.statusCode >= 300 {
-                throw HTTPClientError.badResponseStatusCode(response.statusCode)
+               response.statusCode < 200 || response.statusCode >= 300
+            {
+                // Preserve an unsuccessful response for the caller without moving it to the download destination.
+                task.responseBody = try Data(contentsOf: location)
+            } else {
+                try task.fileSystem.move(from: path, to: task.destination)
             }
-
-            // Always using synchronous `localFileSystem` here since `URLSession` requires temporary `location`
-            // to be moved from synchronously. Otherwise the file will be immediately cleaned up after returning
-            // from this delegate method.
-            try task.fileSystem.move(from: path, to: task.destination)
         } catch {
-            task.moveFileError = error
-            self.tasks[downloadTask.taskIdentifier] = task
+            task.fileOperationError = error
         }
+        self.tasks[downloadTask.taskIdentifier] = task
     }
 
     public func urlSession(
@@ -335,10 +327,10 @@ private final class DownloadTaskManager: NSObject, URLSessionDownloadDelegate {
         do {
             if let error {
                 throw HTTPClientError.downloadError(error.interpolationDescription)
-            } else if let error = task.moveFileError {
+            } else if let error = task.fileOperationError {
                 throw error
             } else if let response = downloadTask.response as? HTTPURLResponse {
-                task.completionHandler(.success(response.response(body: nil)))
+                task.completionHandler(.success(response.response(body: task.responseBody)))
             } else {
                 throw HTTPClientError.invalidResponse
             }
@@ -358,15 +350,9 @@ private final class DownloadTaskManager: NSObject, URLSessionDownloadDelegate {
             return
         }
 
-        // Add new authorization header for a redirect if there is one, otherwise remove
-        var redirectRequest = request
-        if let redirectURL = request.url, let authorization = task.authorizationProvider?(redirectURL) {
-            redirectRequest.setValue(authorization, forHTTPHeaderField: "Authorization")
-        } else {
-            redirectRequest.setValue(nil, forHTTPHeaderField: "Authorization")
-        }
-
-        completionHandler(redirectRequest)
+        completionHandler(
+            request.redirecting(from: response, authorizationProvider: task.authorizationProvider)
+        )
     }
 
     struct DownloadTask: Sendable {
@@ -377,7 +363,8 @@ private final class DownloadTaskManager: NSObject, URLSessionDownloadDelegate {
         let completionHandler: LegacyHTTPClient.CompletionHandler
         let authorizationProvider: LegacyHTTPClientConfiguration.AuthorizationProvider?
 
-        var moveFileError: Error?
+        var responseBody: Data?
+        var fileOperationError: Error?
 
         init(
             task: URLSessionDownloadTask,
@@ -399,6 +386,25 @@ private final class DownloadTaskManager: NSObject, URLSessionDownloadDelegate {
 }
 
 extension URLRequest {
+    /// URLSession replays the original request's headers onto the redirect it proposes, so a hop
+    /// that changes origin has to have its credentials stripped explicitly.
+    func redirecting(
+        from response: HTTPURLResponse,
+        authorizationProvider: LegacyHTTPClientConfiguration.AuthorizationProvider?
+    ) -> URLRequest {
+        var redirected = self
+
+        guard let destination = self.url, let source = response.url, source.hasSameOrigin(as: destination) else {
+            redirected.setValue(nil, forHTTPHeaderField: "Authorization")
+            redirected.setValue(nil, forHTTPHeaderField: "Proxy-Authorization")
+            redirected.setValue(nil, forHTTPHeaderField: "Cookie")
+            return redirected
+        }
+
+        redirected.setValue(authorizationProvider?(destination), forHTTPHeaderField: "Authorization")
+        return redirected
+    }
+
     init(_ request: LegacyHTTPClient.Request) {
         self.init(url: request.url)
         self.httpMethod = request.method.string

@@ -2,7 +2,7 @@
 //
 // This source file is part of the Swift open source project
 //
-// Copyright (c) 2014-2022 Apple Inc. and the Swift project authors
+// Copyright (c) 2014-2026 Apple Inc. and the Swift project authors
 // Licensed under Apache License v2.0 with Runtime Library Exception
 //
 // See http://swift.org/LICENSE.txt for license information
@@ -65,17 +65,9 @@ final class PluginDelegate: PluginInvocationDelegate {
 
     func pluginRequestedBuildOperation(
         subset: PluginInvocationBuildSubset,
-        parameters: PluginInvocationBuildParameters,
-        completion: @escaping (Result<PluginInvocationBuildResult, Error>) -> Void
-    ) {
-        // Run the build in the background and call the completion handler when done.
-        Task {
-            do {
-                try await completion(.success(self.performBuildForPlugin(subset: subset, parameters: parameters)))
-            } catch {
-                completion(.failure(error))
-            }
-        }
+        parameters: PluginInvocationBuildParameters
+    ) async throws -> PluginInvocationBuildResult {
+        try await self.performBuildForPlugin(subset: subset, parameters: parameters)
     }
 
     class TeeOutputByteStream: OutputByteStream {
@@ -189,16 +181,16 @@ final class PluginDelegate: PluginInvocationDelegate {
 
         _ = try await buildSystem.getPackageGraph()
 
-        let builtArtifacts: [PluginInvocationBuildResult.BuiltArtifact] = (result?.builtArtifacts ?? []).filter { (name, _) in
+        let builtArtifacts: [PluginInvocationBuildResult.BuiltArtifact] = (result?.builtArtifacts ?? []).filter { artifact in
             switch subset {
             case .all:
                 return true
             case .product(let productName):
-                return name == productName
+                return artifact.name == productName || artifact.umbrellaTestProductName == productName
             case .target(let targetName):
-                return name == targetName
+                return artifact.name == targetName
             }
-        }.map(\.1)
+        }.map(\.artifact)
 
         return PluginInvocationBuildResult(
             succeeded: success,
@@ -208,17 +200,9 @@ final class PluginDelegate: PluginInvocationDelegate {
 
     func pluginRequestedTestOperation(
         subset: PluginInvocationTestSubset,
-        parameters: PluginInvocationTestParameters,
-        completion: @escaping (Result<PluginInvocationTestResult, Error>
-        ) -> Void) {
-        // Run the test in the background and call the completion handler when done.
-        Task {
-            do {
-                try await completion(.success(self.performTestsForPlugin(subset: subset, parameters: parameters)))
-            } catch {
-                completion(.failure(error))
-            }
-        }
+        parameters: PluginInvocationTestParameters
+    ) async throws -> PluginInvocationTestResult {
+        try await self.performTestsForPlugin(subset: subset, parameters: parameters)
     }
 
     func performTestsForPlugin(
@@ -378,17 +362,9 @@ final class PluginDelegate: PluginInvocationDelegate {
 
     func pluginRequestedSymbolGraph(
         forTarget targetName: String,
-        options: PluginInvocationSymbolGraphOptions,
-        completion: @escaping (Result<PluginInvocationSymbolGraphResult, Error>) -> Void
-    ) {
-        // Extract the symbol graph in the background and call the completion handler when done.
-        Task {
-            do {
-                try await completion(.success(self.createSymbolGraphForPlugin(forTarget: targetName, options: options)))
-            } catch {
-                completion(.failure(error))
-            }
-        }
+        options: PluginInvocationSymbolGraphOptions
+    ) async throws -> PluginInvocationSymbolGraphResult {
+        try await self.createSymbolGraphForPlugin(forTarget: targetName, options: options)
     }
 
     private func createSymbolGraphForPlugin(
@@ -401,7 +377,8 @@ final class PluginDelegate: PluginInvocationDelegate {
         // Create a build system for building the target., skipping the the cache because we need the build plan.
         let buildSystem = try await swiftCommandState.createBuildSystem(
             explicitBuildSystem: buildSystem,
-            enableAllTraits: true,
+            // If no traits are defined enable all for dumping the symbol graph.
+            enableAllTraits: swiftCommandState.traitConfiguration == .default,
             cacheBuildManifest: false
         )
 

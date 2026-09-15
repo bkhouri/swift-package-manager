@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 import Foundation
+import struct TSCBasic.OrderedSet
 import TSCUtility
 
 import struct Basics.AbsolutePath
@@ -61,7 +62,9 @@ extension PackagePIFProjectBuilder {
         var buildSettings: ProjectModel.BuildSettings = self.package.underlying.packageBaseBuildSettings
 
         // Add the dependencies.
-        pluginModule.recursivelyTraverseDependencies { dependency in
+        var pluginTarget = self.project[keyPath: pluginTargetKeyPath]
+        let mainModuleProducts = self.package.products.filter(\.isMainModuleProduct)
+        pluginModule.recursivelyTraverseTransitiveLinkageDependencies(includeDependenciesOfMacros: []) { dependency in
             switch dependency {
             case .module(let moduleDependency, let packageConditions):
                 // This assertion is temporarily disabled since we may see targets from
@@ -75,12 +78,11 @@ extension PackagePIFProjectBuilder {
                 case .executable, .snippet:
                     // For executable targets, add a build time dependency on the product.
                     // FIXME: Maybe we should we do this at the libSwiftPM level.
-                    let moduleProducts = self.package.products.filter(\.isMainModuleProduct)
                     let productDependency = moduleDependency
-                        .productRepresentingDependencyOfBuildPlugin(in: moduleProducts)
+                        .productRepresentingDependencyOfBuildPlugin(in: mainModuleProducts)
 
                     if let productDependency {
-                        self.project[keyPath: pluginTargetKeyPath].common.addDependency(
+                        pluginTarget.common.addDependency(
                             on: productDependency.pifTargetGUID,
                             platformFilters: dependencyPlatformFilters
                         )
@@ -95,7 +97,7 @@ extension PackagePIFProjectBuilder {
 
                 case .library, .systemModule, .test, .binary, .plugin, .macro:
                     let dependencyGUID = moduleDependency.pifTargetGUID
-                    self.project[keyPath: pluginTargetKeyPath].common.addDependency(
+                    pluginTarget.common.addDependency(
                         on: dependencyGUID,
                         platformFilters: dependencyPlatformFilters
                     )
@@ -116,7 +118,7 @@ extension PackagePIFProjectBuilder {
                     let dependencyPlatformFilters = packageConditions
                         .toPlatformFilter(toolsVersion: self.package.manifest.toolsVersion)
 
-                    self.project[keyPath: pluginTargetKeyPath].common.addDependency(
+                    pluginTarget.common.addDependency(
                         on: dependencyGUID,
                         platformFilters: dependencyPlatformFilters
                     )
@@ -128,12 +130,13 @@ extension PackagePIFProjectBuilder {
         // Any dependencies of plugin targets need to be built for the host.
         buildSettings[.SUPPORTED_PLATFORMS] = ["$(HOST_PLATFORM)"]
 
-        self.project[keyPath: pluginTargetKeyPath].common.addBuildConfig { id in
+        pluginTarget.common.addBuildConfig { id in
             BuildConfig(id: id, name: "Debug", settings: buildSettings)
         }
-        self.project[keyPath: pluginTargetKeyPath].common.addBuildConfig { id in
+        pluginTarget.common.addBuildConfig { id in
             BuildConfig(id: id, name: "Release", settings: buildSettings)
         }
+        self.project[keyPath: pluginTargetKeyPath] = pluginTarget
 
         let pluginModuleMetadata = PackagePIFBuilder.ModuleOrProduct(
             type: .plugin,
@@ -199,6 +202,15 @@ extension PackagePIFProjectBuilder {
         }
     }
 
+    // MARK: - Test Support Modules
+
+    // Build a test module that is depended upon by other test modules as a static library.
+    mutating func makeTestSupportModule(_ testModule: PackageGraph.ResolvedModule) throws {
+        precondition(testModule.type == .test)
+        let (staticLibrary, _) = try buildSourceModule(testModule, type: .staticLibrary)
+        self.builtModulesAndProducts.append(staticLibrary)
+    }
+
     // MARK: - Executable Source Modules
 
     /// If we're building an *executable* and the tools version is new enough,
@@ -245,6 +257,107 @@ extension PackagePIFProjectBuilder {
         return FileReference(id: id, path: binaryModule.artifactPath.pathString, fileType: fileTypeIdentifier)
     }
 
+    /// Configures module map settings for a Swift-only or mixed-source source target.
+    func configureSwiftTargetModuleMap(
+        for sourceModule: PackageGraph.ResolvedModule,
+        targetSuffix: TargetSuffix?,
+        settings: inout BuildSettings,
+        impartedSettings: inout BuildSettings
+    ) throws -> (contents: String?, path: String?) {
+        // The generated header should be adjacent to the generated module map.
+        settings[.SWIFT_OBJC_INTERFACE_HEADER_DIR] = "$(GENERATED_MODULEMAP_DIR)"
+        settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME] = "\(sourceModule.name)-Swift.h"
+
+        // Ensure the generated module map of the testable variant of an executable/macro does not conflict with the
+        // primary copy.
+        let moduleMapFileName = "\(sourceModule.name)\(targetSuffix.uniqueDescription(forName: sourceModule.name)).modulemap"
+        let generatedModuleMapPath = try RelativePath(
+            validating: "$(GENERATED_MODULEMAP_DIR)/\(moduleMapFileName)"
+        ).pathString
+
+        var cUmbrellaDeclaration: String? = nil
+        switch sourceModule.moduleMapType {
+        case .umbrellaHeader(let path):
+            log(.debug, "\(package.name).\(sourceModule.name) generated umbrella header")
+            cUmbrellaDeclaration = "umbrella header \"\(path.escapedPathString)\""
+        case .umbrellaDirectory(let path):
+            log(.debug, "\(package.name).\(sourceModule.name) generated umbrella directory")
+            cUmbrellaDeclaration = "umbrella \"\(path.escapedPathString)\""
+        case .custom(let customModuleMapPath):
+            let customModuleMapPathString = customModuleMapPath.pathString
+            settings[.OTHER_SWIFT_FLAGS].lazilyInitializeAndMutate(initialValue: ["$(inherited)"]) {
+                $0.append(contentsOf: [
+                    "-import-underlying-module",
+                    "-Xcc", "-fmodule-map-file=\(customModuleMapPathString)",
+                ])
+            }
+            self.impartModuleMap(at: customModuleMapPathString, to: &impartedSettings)
+            return (nil, customModuleMapPathString)
+        case nil, .some(.none):
+            break
+        }
+
+        let moduleMapFileContents: String
+        if let cUmbrellaDeclaration {
+            // If the target has a public C interface, set the top-level module map contents and allow
+            // Swift Build to inject the submodule for the generated header.
+            settings[.SWIFT_INSTALL_OBJC_HEADER] = "YES"
+            // Opt into Swift Build extending these provided module map contents (the underlying C
+            // module) with the generated `.Swift` submodule, forming a single mixed-language module.
+            settings[.SWIFT_EXTEND_MODULEMAP_FILE_CONTENTS] = "YES"
+            moduleMapFileContents = """
+            module \(sourceModule.c99name) {
+            \(cUmbrellaDeclaration)
+            export *
+            }
+            """
+            // The target must be able to load its own underlying Clang module when compiling Swift sources.
+            settings[.OTHER_SWIFT_FLAGS].lazilyInitializeAndMutate(initialValue: ["$(inherited)"]) {
+                $0.append(contentsOf: ["-Xcc", "-fmodule-map-file=\(generatedModuleMapPath)"])
+            }
+        } else {
+            // In a target with no public C interface, only the generated header is exposed via the Clang module.
+            moduleMapFileContents = """
+            module \(sourceModule.c99name) {
+            header "\(sourceModule.name)-Swift.h"
+            export *
+            }
+            """
+        }
+
+        if let includeDirAbsolutePath = sourceModule.includeDirAbsolutePath {
+            settings[.GENERATED_HEADER_UNDERLYING_MODULE_INCLUDE_BASE] =
+                includeDirAbsolutePath.pathString
+        }
+
+        self.impartModuleMap(at: generatedModuleMapPath, to: &impartedSettings)
+
+        return (moduleMapFileContents, generatedModuleMapPath)
+    }
+
+    private func impartModuleMap(at moduleMapPath: String, to impartedSettings: inout BuildSettings) {
+        // Impart the module map to Clang clients.
+        impartedSettings[.OTHER_CFLAGS].lazilyInitializeAndMutate(initialValue: ["$(inherited)"]) {
+            $0.append("-fmodule-map-file=\(moduleMapPath)")
+        }
+
+        // Whether to impart the module map to Swift dependents in addition to Clang dependents.
+        // Previously, SwiftPM would only impart the module map for the Swift-generated header on the clang
+        // compiles of transitive dependencies. This prevented use of generated C/ObjC interfaces in the API
+        // of a Clang target imported by Swift. For example, if:
+        // - TargetA is Swift-only and produces a generated header exposing type Foo
+        // - TargetB is Clang-only and exposes a function bar which returns a value of type Foo
+        // - TargetC is Swift-only and calls bar
+        // then TargetA must impart settings on TargetC allowing it to load the underlying Clang module of TargetA. When
+        // using a new enough tools version, we impart settings such that this now works.
+        let impartsModuleMapToSwiftClients = self.package.manifest.toolsVersion >= .v6_5
+        if impartsModuleMapToSwiftClients {
+            impartedSettings[.OTHER_SWIFT_FLAGS].lazilyInitializeAndMutate(initialValue: ["$(inherited)"]) {
+                $0.append(contentsOf: ["-Xcc", "-fmodule-map-file=\(moduleMapPath)"])
+            }
+        }
+    }
+
     /// Constructs a *PIF target* for building a *module* as a particular type.
     /// An optional target identifier suffix is passed when building variants of a target.
     @discardableResult
@@ -258,6 +371,7 @@ extension PackagePIFProjectBuilder {
         precondition(sourceModule.isSourceModule)
 
         let productType: ProjectModel.Target.ProductType
+        var productName = "$(EXECUTABLE_NAME)"
 
         switch desiredModuleType {
         case .dynamicLibrary:
@@ -265,6 +379,7 @@ extension PackagePIFProjectBuilder {
             if pifBuilder.createDylibForDynamicProducts {
                 productType = .dynamicLibrary
             } else {
+                productName = "$(WRAPPER_NAME)"
                 productType = .framework
             }
 
@@ -294,7 +409,7 @@ extension PackagePIFProjectBuilder {
                 id: sourceModule.pifTargetGUID(suffix: targetSuffix),
                 productType: productType,
                 name: sourceModule.name,
-                productName: "$(EXECUTABLE_NAME)",
+                productName: productName,
                 approvedByUser: approvedByUser
             )
         }
@@ -325,7 +440,7 @@ extension PackagePIFProjectBuilder {
             let (result, resourceBundle) = try addResourceBundle(
                 for: sourceModule,
                 targetKeyPath: sourceModuleTargetKeyPath,
-                generatedResourceFiles: generatedFiles.resources.keys.map(\.pathString)
+                generatedResourceFiles: generatedFiles.sortedResourcePaths.map(\.pathString)
             )
             if let resourceBundle { self.builtModulesAndProducts.append(resourceBundle) }
 
@@ -363,7 +478,7 @@ extension PackagePIFProjectBuilder {
                 sourceModuleTargetKeyPath: sourceModuleTargetKeyPath,
                 resourceBundleTargetKeyPath: resourceBundleTargetKeyPath,
                 sourceFilePaths: generatedFiles.sources.map(\.self),
-                resourceFilePaths: generatedFiles.resources.keys.map(\.pathString)
+                resourceFilePaths: generatedFiles.sortedResourcePaths.map(\.pathString)
             )
         }
 
@@ -390,21 +505,13 @@ extension PackagePIFProjectBuilder {
         let moduleMapFileContents: String?
         let moduleMapPath: String?
 
-        if sourceModule.usesSwift && desiredModuleType != .macro {
-            // Generate ObjC compatibility header for Swift library targets.
-            settings[.SWIFT_OBJC_INTERFACE_HEADER_DIR] = "$(GENERATED_MODULEMAP_DIR)"
-            settings[.SWIFT_OBJC_INTERFACE_HEADER_NAME] = "\(sourceModule.name)-Swift.h"
-
-            moduleMapFileContents = """
-            module \(sourceModule.c99name) {
-            header "\(sourceModule.name)-Swift.h"
-            export *
-            }
-            """
-            let generatedModuleMapPath = try RelativePath(validating:"$(GENERATED_MODULEMAP_DIR)/\(sourceModule.name).modulemap").pathString
-            moduleMapPath = generatedModuleMapPath
-            // We only need to impart this to C clients.
-            impartedSettings[.OTHER_CFLAGS] = ["-fmodule-map-file=\(generatedModuleMapPath)", "$(inherited)"]
+        if sourceModule.usesSwift {
+            (moduleMapFileContents, moduleMapPath) = try self.configureSwiftTargetModuleMap(
+                for: sourceModule,
+                targetSuffix: targetSuffix,
+                settings: &settings,
+                impartedSettings: &impartedSettings
+            )
         } else {
             // Otherwise, this is a C library module and we generate a modulemap if one is already not provided.
             if let pluginGeneratedModuleMapPath = generatedFiles.moduleMaps.first {
@@ -487,10 +594,19 @@ extension PackagePIFProjectBuilder {
 
             settings[.SWIFT_PACKAGE_NAME] = sourceModule.packageName
 
-            // On Windows, disable static linking mode when this module is a dependency of a dynamic library.
-            // This ensures the module is compiled correctly for linking into a dynamic library.
+            // On Windows, disable static linking mode when this module is a dependency of a dynamic library,
+            // or conditionally disable it when this module is a dependency of an automatic libray which can
+            // be promoted to dynamic. This ensures the module is compiled correctly for linking into a
+            // dynamic library.
             if self.modulesInDynamicLibraries.contains(sourceModule.name) {
                 settings[.SWIFT_COMPILE_FOR_STATIC_LINKING, .windows] = "NO"
+            }
+
+            if let promotableProductTargetIds = self.modulesInPromotableAutomaticLibraries[sourceModule.name] {
+                settings[
+                    .SWIFT_DISABLE_COMPILATION_FOR_STATIC_LINKING_WHEN_ANY_TARGET_IS_PROMOTED_TO_DYNAMIC,
+                    .windows
+                ] = promotableProductTargetIds.map(\.value).sorted()
             }
 
             // This entrypoint is only used for the testable variant of executable and macro targets. The primary PIF generation
@@ -514,6 +630,23 @@ extension PackagePIFProjectBuilder {
 
                 // on windows modules are libraries, so we need to add a search path so the linker finds them
                 impartedSettings[.LIBRARY_SEARCH_PATHS, .windows] = ["$(inherited)", "$(TARGET_BUILD_DIR)/ExecutableModules"]
+
+                // If the executable is promoted to a non-executable PIF product (e.g. a Swift Playgrounds
+                // application), the product target installs the Swift module itself, so suppress this testable
+                // variant's copy to avoid both writing BUILT_PRODUCTS_DIR/<module>.swiftmodule, which produces
+                // a build error of "Multiple commands produce...".
+                let productInstallsOwnModule = self.package.products.contains { product in
+                    guard product.isMainModuleProduct,
+                          product.mainModule?.name == sourceModule.name,
+                          [.executable, .snippet].contains(product.type) else {
+                        return false
+                    }
+                    let pifType = pifBuilder.delegate.customProductType(forExecutable: product.underlying) ?? .executable
+                    return pifType != .executable
+                }
+                if productInstallsOwnModule {
+                    settings[.SWIFT_INSTALL_MODULE] = "NO"
+                }
             }
 
             if let aliases = sourceModule.moduleAliases {
@@ -569,6 +702,13 @@ extension PackagePIFProjectBuilder {
             }
         }
 
+        // A mixed-language target's Objective-C sources may import its own Swift-generated header, which is emitted into `$(GENERATED_MODULEMAP_DIR)`.
+        if sourceModule.usesSwift && sourceModule.isMixedLanguageModule {
+            settings[.HEADER_SEARCH_PATHS].lazilyInitializeAndMutate(initialValue: ["$(inherited)"]) {
+                $0.append("$(GENERATED_MODULEMAP_DIR)")
+            }
+        }
+
         // Additional settings for the linker.
         let enableDuplicateLinkageCulling = UserDefaults.standard.bool(
             forKey: "IDESwiftPackagesEnableDuplicateLinkageCulling",
@@ -577,19 +717,7 @@ extension PackagePIFProjectBuilder {
         if enableDuplicateLinkageCulling {
             impartedSettings[.LD_WARN_DUPLICATE_LIBRARIES] = "NO"
         }
-        if sourceModule.isCxx {
-            for platform in ProjectModel.BuildSettings.Platform.allCases {
-                // darwin & freebsd
-                switch platform {
-                    case .macOS, .macCatalyst, .iOS, .watchOS, .tvOS, .xrOS, .driverKit, .freebsd:
-                        impartedSettings[.OTHER_LDFLAGS, platform] = ["-lc++", "$(inherited)"]
-                    case .android, .linux, .wasi, .openbsd:
-                        impartedSettings[.OTHER_LDFLAGS, platform] = ["-lstdc++", "$(inherited)"]
-                    case .windows, ._iOSDevice:
-                        break
-                }
-            }
-        }
+        self.addCxxStandardLibraryLinkSettings(for: sourceModule, to: &impartedSettings)
         // This should be only for dynamic targets, but that isn't possible today.
         // Improvement is tracked by rdar://77403529 (Only impart `PackageFrameworks` search paths to clients of dynamic
         // package targets and products).
@@ -609,14 +737,27 @@ extension PackagePIFProjectBuilder {
         // Create a group for the target's source files.
         //
         // For now we use an absolute path for it, but we should really make it be container-relative,
-        // since it's always inside the package directory. Resolve symbolic links otherwise there will
-        // be a mismatch between the paths that the index service is using for Swift Build queries,
-        // and what paths Swift Build uses in its build description; such a mismatch would result
-        // in the index service failing to get compiler arguments for source files of the target.
+        // since it's always inside the package directory.
+        //
+        // By default (for historical reasons) we resolve symbolic links,
+        // otherwise there will be a mismatch between the paths some indexing clients are using for
+        // Swift Build queries, and what paths Swift Build uses in its build description; such a
+        // mismatch would result in the index service failing to get compiler arguments for source
+        // files of the target.
+        //
+        // If a client is using `--experimental-skip-resolving-package-paths`, the path is used
+        // as-is.
+        //
+        // Ideally, we could get all known clients to use one mode or the other, but the migration story
+        // is tricky.
+        let sourceDirGroupPath =
+            pifBuilder.shouldPreserveSymlinks
+            ? sourceModule.sourceDirAbsolutePath
+            : (try! resolveSymlinks(sourceModule.sourceDirAbsolutePath))
         let targetSourceFileGroupKeyPath = self.project.mainGroup.addGroup { id in
             ProjectModel.Group(
                 id: id,
-                path: try! resolveSymlinks(sourceModule.sourceDirAbsolutePath).pathString,
+                path: sourceDirGroupPath.pathString,
                 pathBase: .absolute
             )
         }
@@ -630,11 +771,13 @@ extension PackagePIFProjectBuilder {
         //
         // Symlinks should be resolved externally.
         var indexableFileURLs: [SourceControlURL] = []
+        var sourceFileGroup = self.project.mainGroup[keyPath: targetSourceFileGroupKeyPath]
+        var moduleTargetForSources = self.project[keyPath: sourceModuleTargetKeyPath]
         for sourcePath in sourceModule.sourceFileRelativePaths {
-            let sourceFileRef = self.project.mainGroup[keyPath: targetSourceFileGroupKeyPath].addFileReference { id in
+            let sourceFileRef = sourceFileGroup.addFileReference { id in
                 FileReference(id: id, path: sourcePath.pathString, pathBase: .groupDir)
             }
-            self.project[keyPath: sourceModuleTargetKeyPath].addSourceFile { id in
+            moduleTargetForSources.addSourceFile { id in
                 BuildFile(id: id, fileRef: sourceFileRef)
             }
             indexableFileURLs.append(
@@ -647,19 +790,19 @@ extension PackagePIFProjectBuilder {
             indexableFileURLs.append(SourceControlURL(fileURLWithPath: resource.path))
         }
 
-        let headerFiles = Set(sourceModule.headerFileAbsolutePaths)
+        let headerFiles = OrderedSet(sourceModule.headerFileAbsolutePaths)
 
         // Add the header files with project visibility for the purpose of exposing them
         // for symbol graph generation. For non-swift API that will be done using TAPI and
         // a build setting to instruct it to use project visible header files. In the future
         // it may be possible to add public header files with public header visibility.
         for headerPath in headerFiles {
-            let headerFileRef = self.project.mainGroup[keyPath: targetSourceFileGroupKeyPath]
+            let headerFileRef = sourceFileGroup
                 .addFileReference { id in
                     FileReference(id: id, path: headerPath.pathString, pathBase: .absolute)
                 }
 
-            self.project[keyPath: sourceModuleTargetKeyPath].common.withHeadersBuildPhase { phase in
+            moduleTargetForSources.common.withHeadersBuildPhase { phase in
                 phase.common.addBuildFile { id in
                     BuildFile(id: id, fileRef: headerFileRef)
                     // headerVisibility: nil (omitted) = "project" visibility
@@ -671,14 +814,16 @@ extension PackagePIFProjectBuilder {
 
         // Add any additional source files emitted by custom build commands.
         for path in generatedFiles.sources {
-            let sourceFileRef = self.project.mainGroup[keyPath: targetSourceFileGroupKeyPath].addFileReference { id in
+            let sourceFileRef = sourceFileGroup.addFileReference { id in
                 FileReference(id: id, path: path.pathString, pathBase: .absolute)
             }
-            self.project[keyPath: sourceModuleTargetKeyPath].addSourceFile { id in
+            moduleTargetForSources.addSourceFile { id in
                 BuildFile(id: id, fileRef: sourceFileRef)
             }
             log(.debug, indent: 2, "Added generated source file '\(path)'")
         }
+        self.project.mainGroup[keyPath: targetSourceFileGroupKeyPath] = sourceFileGroup
+        self.project[keyPath: sourceModuleTargetKeyPath] = moduleTargetForSources
 
         if let resourceBundle = resourceBundleName {
             impartedSettings[.EMBED_PACKAGE_RESOURCE_BUNDLE_NAMES] = ["$(inherited)", resourceBundle]
@@ -717,7 +862,9 @@ extension PackagePIFProjectBuilder {
 
         // Handle the target's dependencies (but only link against them if needed).
         let shouldLinkProduct = (desiredModuleType == .dynamicLibrary) || (desiredModuleType == .macro)
-        sourceModule.recursivelyTraverseDependencies { dependency in
+        var moduleTarget = self.project[keyPath: sourceModuleTargetKeyPath]
+        let moduleMainProducts = self.package.products.filter(\.isMainModuleProduct)
+        sourceModule.recursivelyTraverseTransitiveLinkageDependencies(includeDependenciesOfMacros: []) { dependency in
             switch dependency {
             case .module(let moduleDependency, let packageConditions):
                 // This assertion is temporarily disabled since we may see targets from
@@ -731,11 +878,10 @@ extension PackagePIFProjectBuilder {
                 case .executable, .snippet:
                     // Always depend on product of executable targets (if available).
                     // FIXME: Maybe we should we do this at the libSwiftPM level.
-                    let moduleMainProducts = self.package.products.filter(\.isMainModuleProduct)
                     if let product = moduleDependency
                         .productRepresentingDependencyOfBuildPlugin(in: moduleMainProducts)
                     {
-                        self.project[keyPath: sourceModuleTargetKeyPath].common.addDependency(
+                        moduleTarget.common.addDependency(
                             on: product.pifTargetGUID,
                             platformFilters: dependencyPlatformFilters,
                             linkProduct: false
@@ -758,7 +904,7 @@ extension PackagePIFProjectBuilder {
                         return Self.createBinaryModuleFileReference(binaryModule, id: id)
                     }
                     if shouldLinkProduct {
-                        self.project[keyPath: sourceModuleTargetKeyPath].addLibrary { id in
+                        moduleTarget.addLibrary { id in
                             BuildFile(
                                 id: id,
                                 fileRef: binaryReference,
@@ -770,7 +916,7 @@ extension PackagePIFProjectBuilder {
                     } else {
                         // If we are producing a single ".o", don't link binaries since they
                         // could be static which would cause them to become part of the ".o".
-                        self.project[keyPath: sourceModuleTargetKeyPath].addResourceFile { id in
+                        moduleTarget.addResourceFile { id in
                             BuildFile(
                                 id: id,
                                 fileRef: binaryReference,
@@ -782,7 +928,7 @@ extension PackagePIFProjectBuilder {
 
                 case .plugin:
                     let dependencyGUID = moduleDependency.pifTargetGUID
-                    self.project[keyPath: sourceModuleTargetKeyPath].common.addDependency(
+                    moduleTarget.common.addDependency(
                         on: dependencyGUID,
                         platformFilters: dependencyPlatformFilters,
                         linkProduct: false
@@ -790,7 +936,7 @@ extension PackagePIFProjectBuilder {
                     log(.debug, indent: 1, "Added use of plugin target '\(dependencyGUID)'")
 
                 case .library, .test, .macro, .systemModule:
-                    self.project[keyPath: sourceModuleTargetKeyPath].common.addDependency(
+                    moduleTarget.common.addDependency(
                         on: moduleDependency.pifTargetGUID,
                         platformFilters: dependencyPlatformFilters,
                         linkProduct: shouldLinkProduct
@@ -816,7 +962,7 @@ extension PackagePIFProjectBuilder {
                         .toPlatformFilter(toolsVersion: self.package.manifest.toolsVersion)
                     let shouldLinkProduct = shouldLinkProduct && productDependency.isLinkable
 
-                    self.project[keyPath: sourceModuleTargetKeyPath].common.addDependency(
+                    moduleTarget.common.addDependency(
                         on: productDependency.pifTargetGUID,
                         platformFilters: dependencyPlatformFilters,
                         linkProduct: shouldLinkProduct
@@ -829,6 +975,7 @@ extension PackagePIFProjectBuilder {
                 }
             }
         }
+        self.project[keyPath: sourceModuleTargetKeyPath] = moduleTarget
 
         // Custom source module build settings, if any.
         pifBuilder.delegate.configureSourceModuleBuildSettings(sourceModule: sourceModule, settings: &settings)
@@ -872,7 +1019,8 @@ extension PackagePIFProjectBuilder {
             impartedDebugSettings[.LD_RUNPATH_SEARCH_PATHS] = rpaths + ["$(inherited)"]
         }
 
-        self.project[keyPath: sourceModuleTargetKeyPath].common.addBuildConfig { id in
+        var moduleTargetForConfigs = self.project[keyPath: sourceModuleTargetKeyPath]
+        moduleTargetForConfigs.common.addBuildConfig { id in
             BuildConfig(
                 id: id,
                 name: "Debug",
@@ -880,7 +1028,7 @@ extension PackagePIFProjectBuilder {
                 impartedBuildSettings: impartedDebugSettings
             )
         }
-        self.project[keyPath: sourceModuleTargetKeyPath].common.addBuildConfig { id in
+        moduleTargetForConfigs.common.addBuildConfig { id in
             BuildConfig(
                 id: id,
                 name: "Release",
@@ -888,6 +1036,7 @@ extension PackagePIFProjectBuilder {
                 impartedBuildSettings: impartedSettings
             )
         }
+        self.project[keyPath: sourceModuleTargetKeyPath] = moduleTargetForConfigs
 
         // Collect linked binaries.
         let linkedPackageBinaries: [PackagePIFBuilder.LinkedPackageBinary] = sourceModule.dependencies.compactMap {
@@ -902,13 +1051,22 @@ extension PackagePIFProjectBuilder {
             .module
         }
 
+        // The input files of any build tool plugin commands (which may live outside the target
+        // directory).
+        let buildToolPluginInputs = Set(
+            (pifBuilder.buildToolPluginResultsByTargetName[sourceModule.name] ?? [])
+                .flatMap(\.buildCommands)
+                .flatMap(\.inputPaths)
+        )
+
         let moduleOrProduct = PackagePIFBuilder.ModuleOrProduct(
             type: productOrModuleType,
             name: sourceModule.name,
             moduleName: sourceModule.c99name,
             pifTarget: .target(self.project[keyPath: sourceModuleTargetKeyPath]),
             indexableFileURLs: indexableFileURLs,
-            headerFiles: headerFiles,
+            headerFiles: Set(headerFiles.contents),
+            buildToolPluginInputs: buildToolPluginInputs,
             doccCatalogs: doccCatalogs,
             linkedPackageBinaries: linkedPackageBinaries,
             swiftLanguageVersion: sourceModule.packageSwiftLanguageVersion(manifest: packageManifest),
@@ -918,6 +1076,29 @@ extension PackagePIFProjectBuilder {
         )
 
         return (moduleOrProduct, resourceBundleName)
+    }
+
+    func addCxxStandardLibraryLinkSettings(
+        for module: ResolvedModule,
+        to settings: inout ProjectModel.BuildSettings
+    ) {
+        guard module.isCxx else { return }
+
+        for platform in ProjectModel.BuildSettings.Platform.allCases {
+            let standardLibraryFlag: String
+            switch platform {
+                case .macOS, .macCatalyst, .iOS, .watchOS, .tvOS, .xrOS, .driverKit, .freebsd:
+                    // darwin & freebsd
+                    standardLibraryFlag = "-lc++"
+                case .android, .linux, .wasi, .openbsd:
+                    standardLibraryFlag = "-lstdc++"
+                case .windows, ._iOSDevice:
+                    continue
+            }
+            settings[.OTHER_LDFLAGS, platform].lazilyInitializeAndMutate(initialValue: ["$(inherited)"]) {
+                $0.append(standardLibraryFlag)
+            }
+        }
     }
 
     private func applyPackageCompatibilityWorkarounds(for sourceModule: ResolvedModule, to settings: inout BuildSettings) {

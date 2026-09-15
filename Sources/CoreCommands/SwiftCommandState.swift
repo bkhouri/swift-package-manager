@@ -14,8 +14,9 @@ import _Concurrency
 import ArgumentParser
 import Basics
 import Dispatch
-import class Foundation.NSLock
 import class Foundation.ProcessInfo
+import struct Foundation.URL
+import struct Foundation.URLResourceValues
 import PackageFingerprint
 import PackageGraph
 import PackageLoading
@@ -181,12 +182,31 @@ package func createCacheDirFile(
             #.   http://www.brynosaurus.com/cachedir/
             """
         try fileSystem.createDirectory(path.parentDirectory, recursive: true)
+        _ = excludeFromBackups(directory: directory)
         try fileSystem.writeFileContents(path, string: contents)
         return path
     } catch {
         // Don't error out if we fail to create the CACHEDIR.TAG file, as this is not critical to the functioning of the tool.
         return nil
     }
+}
+
+/// Marks a directory as excluded from backups, for example for Time Machine.
+package func excludeFromBackups(directory: AbsolutePath) -> Bool {
+    #if os(macOS)
+    do {
+        var url = directory.asURL
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        try url.setResourceValues(resourceValues)
+        return true
+    } catch {
+        // Don't error out if we fail to create the file, as this is not critical to the functioning of the tool.
+        return false
+    }
+    #else
+    return false
+    #endif
 }
 
 package func createBuildSystemFile(
@@ -397,7 +417,7 @@ public final class SwiftCommandState {
     }
 
     // marked internal for testing
-    init(
+    package init(
         outputStream: OutputByteStream,
         options: GlobalOptions,
         toolWorkspaceConfiguration: ToolWorkspaceConfiguration,
@@ -457,7 +477,20 @@ public final class SwiftCommandState {
         self.cancellator = cancellator
 
         // Create local variables to use while finding build path to avoid capture self before init error.
-        let packageRoot = findPackageRoot(fileSystem: fileSystem)
+        let packageRoot: AbsolutePath?
+        if options.locations.skipResolvingPackagePaths {
+            // Do not use the current working directory to determine the package root, as it will indirectly
+            // cause us to reference its sources via their real instead of symlinked paths.
+            guard let packageDirectory = options.locations.packageDirectory else {
+                self.observabilityScope.emit(
+                    error: "'--experimental-skip-resolving-package-paths' requires an explicit '--package-path'"
+                )
+                throw ExitCode.failure
+            }
+            packageRoot = packageDirectory
+        } else {
+            packageRoot = findPackageRoot(fileSystem: fileSystem)
+        }
 
         self.packageRoot = packageRoot
         self.scratchDirectory =
@@ -559,7 +592,7 @@ public final class SwiftCommandState {
         }
     }
 
-    func waitForObservabilityEvents(timeout: DispatchTime) {
+    package func waitForObservabilityEvents(timeout: DispatchTime) {
         self.observabilityHandler.wait(timeout: timeout)
     }
 
@@ -613,7 +646,7 @@ public final class SwiftCommandState {
                 signingEntityCheckingMode: self.options.security.signingEntityCheckingMode,
                 skipSignatureValidation: !self.options.security.signatureValidation,
                 sourceControlToRegistryDependencyTransformation: self.options.resolver
-                    .sourceControlToRegistryDependencyTransformation.workspaceConfiguration,
+                    .sourceControlToRegistryDependencyTransformation?.workspaceConfiguration,
                 defaultRegistry: self.options.resolver.defaultRegistryURL.flatMap {
                     // TODO: should supportsAvailability be a flag as well?
                     .init(url: $0, supportsAvailability: true)
@@ -790,7 +823,9 @@ public final class SwiftCommandState {
         )
     }
 
-    public func getRegistryAuthorizationProvider() throws -> AuthorizationProvider? {
+    public func getRegistryAuthorizationProvider(
+        additionalRegistryURLs: [URL] = []
+    ) throws -> AuthorizationProvider? {
         var authorization = Workspace.Configuration.Authorization.default
         if let configuredPath = options.security.netrcFilePath {
             authorization.netrc = .custom(configuredPath)
@@ -805,8 +840,21 @@ public final class SwiftCommandState {
 
         return try authorization.makeRegistryAuthorizationProvider(
             fileSystem: self.fileSystem,
-            observabilityScope: self.observabilityScope
+            observabilityScope: self.observabilityScope,
+            registryURLs: { try self.configuredRegistryURLs() + additionalRegistryURLs }
         )
+    }
+
+    private func configuredRegistryURLs() throws -> [URL] {
+        let registries = try Workspace.Configuration.Registries(
+            fileSystem: self.fileSystem,
+            localRegistriesFile: Workspace.DefaultLocations
+                .registriesConfigurationFile(at: self.getLocalConfigurationDirectory()),
+            sharedRegistriesFile: Workspace.DefaultLocations
+                .registriesConfigurationFile(at: self.sharedConfigurationDirectory)
+        ).configuration
+
+        return registries.registryURLs + [self.options.resolver.defaultRegistryURL].compactMap { $0 }
     }
 
     /// Resolve the dependencies.
@@ -850,11 +898,13 @@ public final class SwiftCommandState {
     /// - Parameters:
     ///   - explicitProduct: The product specified on the command line to a “swift run” or “swift build” command. This
     /// allows executables from dependencies to be run directly without having to hook them up to any particular target.
+    ///   - exitOnError: Whether loading errors should cause this method to throw a failure exit code. Defaults to `true`.
     @discardableResult
     package func loadPackageGraph(
         explicitProduct: String? = nil,
         enableAllTraits: Bool = false,
-        testEntryPointPath: AbsolutePath? = nil
+        testEntryPointPath: AbsolutePath? = nil,
+        exitOnError: Bool = true
     ) async throws -> ModulesGraph {
         do {
             let workspace = try getActiveWorkspace(enableAllTraits: enableAllTraits)
@@ -876,7 +926,7 @@ public final class SwiftCommandState {
 
             // Throw if there were errors when loading the graph.
             // The actual errors will be printed before exiting.
-            guard !packageGraphObservabilityScope.errorsReported else {
+            guard !exitOnError || !packageGraphObservabilityScope.errorsReported else {
                 throw ExitCode.failure
             }
             return graph
@@ -1008,6 +1058,23 @@ public final class SwiftCommandState {
     when building on macOS.
     """
 
+    package func computeSDKRootOverride() -> AbsolutePath? {
+        let sdkRootOverride = self.options.build.customCompileSDK
+            ?? self.environment["SDKROOT"].flatMap { try? AbsolutePath(validating: $0) }
+        guard let sdkRootOverride else {
+            return nil
+        }
+        if let swiftSDKSelector = self.options.build.swiftSDKSelector {
+            let source = self.options.build.customCompileSDK != nil
+                ? "'--sdk'"
+                : "the 'SDKROOT' environment variable"
+            self.observabilityScope.emit(warning: "ignoring the SDK '\(sdkRootOverride)' specified using \(source) because the Swift SDK '\(swiftSDKSelector)' was selected with '--swift-sdk'")
+            return nil
+        } else {
+            return sdkRootOverride
+        }
+    }
+
     private func _buildParams(
         toolchain: UserToolchain,
         destination: BuildParameters.Destination,
@@ -1036,7 +1103,7 @@ public final class SwiftCommandState {
             configuration: self.options.build.configuration ?? self.preferredBuildConfiguration,
             toolchain: toolchain,
             triple: triple,
-            sdkRootOverride: self.options.build.customCompileSDK ?? self.environment["SDKROOT"].flatMap({ try? AbsolutePath(validating: $0) }),
+            sdkRootOverride: self.computeSDKRootOverride(),
             flags: options.build.buildFlags,
             buildSystemKind: options.build.buildSystem,
             pkgConfigDirectories: options.locations.pkgConfigDirectories,
@@ -1094,6 +1161,7 @@ public final class SwiftCommandState {
                 testEntryPointPath: self.options.build.testEntryPointPath
             ),
             stripProducts: self.options.build.stripProducts,
+            shouldPreserveSymlinks: options.locations.skipResolvingPackagePaths,
         )
     }
 
@@ -1333,10 +1401,12 @@ extension BuildSystemProvider.Kind {
 
     fileprivate var additionalFileRules: [FileRuleDescription] {
         switch self {
-        case .xcode, .swiftbuild:
-            return FileRuleDescription.xcbuildFileTypes
+        case .xcode:
+            FileRuleDescription.xcbuildFileTypes
+        case .swiftbuild:
+            FileRuleDescription.swiftBuildFileTypes
         case .native:
-            return FileRuleDescription.swiftpmFileTypes
+            FileRuleDescription.swiftpmFileTypes
         }
     }
 }

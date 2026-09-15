@@ -28,6 +28,7 @@ import SPMBuildCore
 import struct SPMBuildCore.BuildParameters
 import TSCTestSupport
 import Workspace
+import enum Commands.CoverageFormat
 import Testing
 import func XCTest.XCTFail
 import struct XCTest.XCTSkip
@@ -493,6 +494,29 @@ public func executeSwiftBuild(
     return try await SwiftPM.Build.execute(args, packagePath: packagePath, env: env, throwIfCommandFails: throwIfCommandFails)
 }
 
+public func getBinPath(
+    _ packagePath: AbsolutePath?,
+    configuration: BuildConfiguration = .debug,
+    extraArgs: [String] = [],
+    Xcc: [String] = [],
+    Xld: [String] = [],
+    Xswiftc: [String] = [],
+    env: Environment? = nil,
+    buildSystem: BuildSystemProvider.Kind,
+) async throws -> AbsolutePath {
+    let output = try await executeSwiftBuild(
+        packagePath,
+        configuration: configuration,
+        extraArgs: extraArgs + ["--show-bin-path"],
+        Xcc: Xcc,
+        Xld: Xld,
+        Xswiftc: Xswiftc,
+        env: env,
+        buildSystem: buildSystem,
+    )
+    return try AbsolutePath(validating: output.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
+}
+
 @discardableResult
 public func executeSwiftRun(
     _ packagePath: AbsolutePath?,
@@ -571,6 +595,7 @@ public func executeSwiftTest(
     Xcc: [String] = [],
     Xld: [String] = [],
     Xswiftc: [String] = [],
+    Xcov: [String] = [],
     env: Environment? = nil,
     buildSystem: BuildSystemProvider.Kind,
     throwIfCommandFails: Bool = false,
@@ -581,6 +606,7 @@ public func executeSwiftTest(
         Xcc: Xcc,
         Xld: Xld,
         Xswiftc: Xswiftc,
+        Xcov: Xcov,
         buildSystem: buildSystem
     )
     return try await SwiftPM.Test.execute(args, packagePath: packagePath, env: env, throwIfCommandFails: throwIfCommandFails)
@@ -592,23 +618,32 @@ private func swiftArgs(
     Xcc: [String],
     Xld: [String],
     Xswiftc: [String],
+    Xcov: [String] = [],
     buildSystem: BuildSystemProvider.Kind?
 ) -> [String] {
-    var args = ["--configuration"]
-    switch configuration {
-    case .debug:
-        args.append("debug")
-    case .release:
-        args.append("release")
-    }
-
+    var args = configuration.buildArgs
     args += Xcc.flatMap { ["-Xcc", $0] }
     args += Xld.flatMap { ["-Xlinker", $0] }
     args += Xswiftc.flatMap { ["-Xswiftc", $0] }
     args += getBuildSystemArgs(for: buildSystem)
+    args += Xcov.flatMap { ["-Xcov", $0] }
     args += extraArgs
     return args
 }
+
+extension BuildConfiguration {
+    public var buildArgs: [String] {
+        var args = ["--configuration"]
+        switch self {
+        case .debug:
+            args.append("debug")
+        case .release:
+            args.append("release")
+        }
+        return args
+    }
+}
+
 
 public let emptyZipFile = ByteString([0x80, 0x75, 0x05, 0x06] + [UInt8](repeating: 0x00, count: 18))
 
@@ -741,13 +776,19 @@ public func executableName(_ name: String) -> String {
 package func getCoveragePath(
     _ path: AbsolutePath,
     with buildData: BuildData,
+    format: CoverageFormat? = nil,
 ) async throws -> String {
+    let additionalArgs: [String] = if let format {
+        ["--coverage-format", format.rawValue]
+    } else {
+        []
+    }
     return try await executeSwiftTest(
             path,
             configuration: buildData.config,
             extraArgs: [
                 "--show-coverage-path",
-            ],
+            ] + additionalArgs,
             buildSystem: buildData.buildSystem,
             throwIfCommandFails: true,
         ).stdout.trimmingCharacters(in: .whitespacesAndNewlines)

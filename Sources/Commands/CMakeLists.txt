@@ -7,6 +7,10 @@
 # See http://swift.org/CONTRIBUTORS.txt for Swift project authors
 
 add_library(Commands
+  Coverage/CoverageError.swift
+  Coverage/CoverageFormatOutput.swift
+  Coverage/CoverageOptions.swift
+  Coverage/XcovArgument.swift
   PackageCommands/AddDependency.swift
   PackageCommands/AddProduct.swift
   PackageCommands/AddTarget.swift
@@ -49,12 +53,15 @@ add_library(Commands
   SwiftRunCommand.swift
   SwiftTestCommand.swift
   CommandWorkspaceDelegate.swift
+  FileContentsMerger.swift
+  XUnitXMLMerger.swift
   Utilities/APIDigester.swift
   Utilities/DependenciesSerializer.swift
   Utilities/DescribedPackage.swift
   Utilities/DOTManifestSerializer.swift
   Utilities/MermaidPackageSerializer.swift
   Utilities/MultiRootSupport.swift
+  Utilities/NonEmpty.swift
   Utilities/PlainTextEncoder.swift
   Utilities/PluginDelegate.swift
   Utilities/RefactoringSupport.swift

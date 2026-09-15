@@ -13,12 +13,14 @@
 /// Namespace for build settings.
 public enum BuildSettings {
     /// Build settings declarations.
-    public struct Declaration: Hashable {
+    public struct Declaration: Hashable, Comparable {
         // Swift.
         public static let SWIFT_ACTIVE_COMPILATION_CONDITIONS: Declaration =
             .init("SWIFT_ACTIVE_COMPILATION_CONDITIONS")
         public static let OTHER_SWIFT_FLAGS: Declaration = .init("OTHER_SWIFT_FLAGS")
         public static let SWIFT_VERSION: Declaration = .init("SWIFT_VERSION")
+        public static let SWIFT_OBJC_BRIDGING_HEADER: Declaration = .init("SWIFT_OBJC_BRIDGING_HEADER")
+        public static let SWIFT_BRIDGING_HEADER_IS_INTERNAL: Declaration = .init("SWIFT_BRIDGING_HEADER_IS_INTERNAL")
 
         // C family.
         public static let GCC_PREPROCESSOR_DEFINITIONS: Declaration = .init("GCC_PREPROCESSOR_DEFINITIONS")
@@ -41,6 +43,15 @@ public enum BuildSettings {
 
         private init(_ name: String) {
             self.name = name
+        }
+
+        /// Ordered by name so that consumers iterating an assignment table can produce
+        /// deterministic output. Several declarations map onto a single build setting
+        /// downstream (`LINK_LIBRARIES`, `LINK_FRAMEWORKS` and `OTHER_LDFLAGS`,
+        /// all become `OTHER_LDFLAGS` in the PIF); sorting on the name prevents the
+        /// order of the emitted flags from varying between builds of identical sources.
+        public static func < (lhs: Declaration, rhs: Declaration) -> Bool {
+            lhs.name < rhs.name
         }
     }
 
